@@ -10,6 +10,8 @@ Built for iOS 17+ / macOS 14+ with Swift 6 concurrency. Zero external dependenci
 
 - **ReAct Loop Engine** — Iterative reason-then-act execution with async event streaming
 - **Human-In-The-Loop (HITL)** — Intercept sensitive tool calls for user approval before execution
+- **User Input Requests** — Tools can pause execution and ask the user a question (text, single-choice, number, choice-with-other)
+- **Confidence Reporting** — Tools report their confidence level; the executor can surface this to the UI and use it to decide when to clarify
 - **Pluggable Context Compression** — Sliding window (default) or LLM-based summarization to manage conversation history
 - **Sub-Agents** — Spawn child executors to delegate focused subtasks
 - **Skills** — Composable bundles of system prompt + tools + configuration
@@ -45,6 +47,8 @@ Built for iOS 17+ / macOS 14+ with Swift 6 concurrency. Zero external dependenci
 
 ### 1. Define Tools
 
+Tool arguments are now typed as `[String: ToolValue]`. Use `.stringValue`, `.number`, `.bool`, `.array` etc. to extract values:
+
 ```swift
 import MBAgentKit
 
@@ -57,8 +61,8 @@ let weatherTool = BlockTool(
         ],
         required: ["city"]
     )
-) { args in
-    let city = args["city"] as? String ?? "unknown"
+) { args, _ in
+    let city = args["city"]?.stringValue ?? "unknown"
     return "☀️ \(city): 22°C, sunny"
 }
 ```
@@ -100,19 +104,88 @@ let deleteTool = BlockTool(
         required: ["id"]
     ),
     requiresConfirmation: true  // ← pauses for user approval
-) { args in
-    // ... perform deletion
+) { args, _ in
+    // only runs after executor.resume(approved: true)
     return "Deleted"
 }
 ```
 
-Handle the confirmation in your UI:
+Handle the confirmation event:
 
 ```swift
 for try await event in stream {
-    case .awaitingConfirmation(let id, let toolName, let args):
-        // Show confirmation UI, then:
-        executor.resume(approved: true)  // or false to reject
+case .awaitingConfirmation(let id, let toolName, let args):
+    // Show confirmation UI, then:
+    executor.resume(approved: true)  // or false to reject
+}
+```
+
+## User Input Requests
+
+Tools can pause execution to ask the user a question directly, without requiring a full round-trip through the LLM. Use the `AgentToolContext` passed as the second argument to your `BlockTool` closure:
+
+```swift
+let clarifyTool = BlockTool(
+    name: "ask_budget",
+    description: "Ask the user for their budget",
+    parameters: ToolParameters(properties: [:], required: [])
+) { _, context in
+    // Free-text input
+    guard let budget = await context.askForText(
+        title: "Budget",
+        prompt: "What is your budget?",
+        placeholder: "e.g. 5000"
+    ) else { return "User cancelled." }
+    return "Budget: \(budget)"
+}
+```
+
+### Available Input Methods
+
+| Method | Description |
+|--------|-------------|
+| `askForText(title:prompt:placeholder:)` | Free-text field |
+| `askForNumber(title:prompt:placeholder:)` | Numeric field, returns `Double?` |
+| `askForChoice(title:prompt:options:)` | Single-choice picker from a fixed list |
+| `askForChoiceWithOther(title:prompt:options:customPlaceholder:)` | Choice picker with an additional free-text "other" field |
+
+All methods return `nil` if the user cancels.
+
+### Handling in the UI
+
+The executor emits `.awaitingUserInput` and `.userInputResolved` events. If you use `AgentRunningView` from `MBAgentKitUI`, these are handled automatically. For a custom UI, respond to:
+
+```swift
+case .awaitingUserInput(let id, let request):
+    // request.title, request.prompt, request.kind
+    // (.text, .singleChoice, .number, .choiceWithOther)
+    executor.submitUserInput("user's answer")   // or cancelUserInput()
+```
+
+## Confidence Reporting
+
+Tools can report their current confidence level via `context.updateConfidence(_:)`. The executor surfaces this as a `.confidenceUpdated(Double)` event and `AgentRunState.currentConfidence`.
+
+A common pattern is to gate clarification on low confidence:
+
+```swift
+let analyzeTool = BlockTool(
+    name: "analyze",
+    description: "Analyze and decide",
+    parameters: ToolParameters(
+        properties: [
+            "confidence": ToolProperty(type: "number", description: "0–100")
+        ],
+        required: ["confidence"]
+    )
+) { args, context in
+    let confidence = args["confidence"]?.numberValue ?? 0
+    context.updateConfidence(confidence)
+
+    guard confidence >= 70 else {
+        return "Confidence too low — need more information."
+    }
+    return "Decision: proceed."
 }
 ```
 
@@ -236,6 +309,68 @@ runner.cancel(taskId)
 // Clean up finished tasks
 runner.pruneFinished()
 ```
+
+## MBAgentKitUI
+
+`MBAgentKitUI` provides a single `AgentRunningView` that renders the full agent execution state — thoughts, tool call timeline, HITL confirmation cards, user input cards, and the final answer.
+
+### AgentRunningView
+
+```swift
+import MBAgentKitUI
+
+// Persist the display mode preference (compact strip vs. full list)
+@AppStorage("agentStripDisplayMode") var displayMode: AgentStripDisplayMode = .compact
+
+AgentRunningView(
+    thought: runState.currentThought,
+    events: runState.events,
+    answer: runState.currentAnswer,
+    isRunning: runState.isRunning,
+    iterationCount: runState.iterationCount,
+    pendingConfirmation: runState.pendingConfirmation,
+    pendingUserInput: runState.pendingUserInput,
+    displayMode: $displayMode,
+    onConfirm: { executor.resume(approved: true) },
+    onReject:  { executor.resume(approved: false) },
+    onSubmitInput: { executor.submitUserInput($0) },
+    onCancelInput: { executor.cancelUserInput() }
+)
+```
+
+`AgentStripDisplayMode` controls how tool call progress is displayed:
+
+| Value | Description |
+|-------|-------------|
+| `.compact` | Horizontal scrolling strip — minimal footprint |
+| `.list` | Vertical list of tool call rows — full detail |
+
+The caller owns and persists `displayMode`. Backing it with `@AppStorage` keeps the preference across launches.
+
+### AgentRunState
+
+`AgentRunState` is an `@Observable` accumulator. Feed it events from the executor's stream and bind it directly to your views:
+
+```swift
+let runState = AgentRunState()
+
+for try await event in executor.run(messages: messages) {
+    runState.handleEvent(event)
+}
+```
+
+Key properties:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `isRunning` | `Bool` | Whether the executor is still active |
+| `currentThought` | `String` | Latest thought delta |
+| `currentAnswer` | `String` | Accumulated final answer |
+| `events` | `[AgentEvent]` | Full tool call timeline |
+| `currentConfidence` | `Double?` | Latest confidence reported by a tool |
+| `pendingConfirmation` | `PendingConfirmation?` | Awaiting HITL approval |
+| `pendingUserInput` | `PendingUserInput?` | Awaiting user text/choice input |
+| `errorMessage` | `String?` | Non-nil if the run failed |
 
 ## Modules
 
