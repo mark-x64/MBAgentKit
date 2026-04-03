@@ -80,8 +80,8 @@ public struct SubAgentTool: AgentTool, Sendable {
         }
     }
 
-    public func execute(arguments: [String: Any]) async throws -> String {
-        let task = arguments["task"] as? String ?? ""
+    public func execute(arguments: [String: ToolValue], context: AgentToolContext) async throws -> String {
+        let task = arguments["task"]?.stringValue ?? ""
         guard !task.isEmpty else {
             return "Error: 'task' argument is required."
         }

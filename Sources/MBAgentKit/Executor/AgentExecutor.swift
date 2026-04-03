@@ -9,28 +9,43 @@ import Foundation
 ///
 /// Features Human-In-The-Loop (HITL) interception for tools that require
 /// user confirmation before execution.
-@Observable
+///
+/// NOTE: @Observable removed — this class is accessed from both @MainActor and
+/// background Tasks. @Observable's _$observationRegistrar is not safe for
+/// concurrent multi-actor access, causing EXC_BAD_ACCESS on device.
 public final class AgentExecutor: Equatable, @unchecked Sendable {
 
-    public static func == (lhs: AgentExecutor, rhs: AgentExecutor) -> Bool {
+    nonisolated public static func == (lhs: AgentExecutor, rhs: AgentExecutor) -> Bool {
         lhs === rhs
     }
 
-    public let llm: any LLMServiceProtocol
-    public let tools: [any AgentTool]
-    public let configuration: AgentConfiguration
+    nonisolated public let llm: any LLMServiceProtocol
+    nonisolated public let tools: [any AgentTool]
+    nonisolated public let configuration: AgentConfiguration
 
     /// Backward-compatible accessor.
-    public var maxIterations: Int { configuration.maxIterations }
+    nonisolated public var maxIterations: Int { configuration.maxIterations }
 
-    /// Currently suspended HITL confirmation continuation.
-    private var pendingConfirmation: CheckedContinuation<Bool, Never>?
+    /// Lock protecting continuations across actor boundaries.
+    nonisolated private let lock = NSLock()
+    nonisolated(unsafe) private var _pendingConfirmation: CheckedContinuation<Bool, Never>?
+    nonisolated(unsafe) private var _pendingUserInput: CheckedContinuation<UserInputResponse, Never>?
+
+    nonisolated private var pendingConfirmation: CheckedContinuation<Bool, Never>? {
+        get { lock.withLock { _pendingConfirmation } }
+        set { lock.withLock { _pendingConfirmation = newValue } }
+    }
+
+    nonisolated private var pendingUserInput: CheckedContinuation<UserInputResponse, Never>? {
+        get { lock.withLock { _pendingUserInput } }
+        set { lock.withLock { _pendingUserInput = newValue } }
+    }
 
     /// Whether the executor is currently waiting for user confirmation.
-    public var isWaitingForConfirmation: Bool { pendingConfirmation != nil }
+    nonisolated public var isWaitingForConfirmation: Bool { pendingConfirmation != nil }
 
     /// Primary initializer using ``AgentConfiguration``.
-    public init(
+    nonisolated public init(
         llm: any LLMServiceProtocol,
         tools: [any AgentTool],
         configuration: AgentConfiguration = .default
@@ -41,7 +56,7 @@ public final class AgentExecutor: Equatable, @unchecked Sendable {
     }
 
     /// Legacy convenience initializer for backward compatibility.
-    public convenience init(
+    nonisolated public convenience init(
         llm: any LLMServiceProtocol,
         tools: [any AgentTool],
         maxIterations: Int
@@ -57,8 +72,14 @@ public final class AgentExecutor: Equatable, @unchecked Sendable {
     ///
     /// - Parameter initialMessages: The initial message chain (system + user).
     /// - Returns: An async stream of ``AgentEvent`` values.
-    public func run(messages initialMessages: [ChatMessage]) -> AsyncThrowingStream<AgentEvent, Error> {
-        AsyncThrowingStream<AgentEvent, Error> { continuation in
+    nonisolated public func run(messages initialMessages: [ChatMessage]) -> AsyncThrowingStream<AgentEvent, Error> {
+        // Snapshot immutable state before entering the Task to avoid
+        // any actor-boundary access to self inside the runner.
+        let llm = self.llm
+        let tools = self.tools
+        let configuration = self.configuration
+
+        return AsyncThrowingStream<AgentEvent, Error> { continuation in
             let runner = Task {
                 let systemPrompt = initialMessages.first(where: { $0.role == .system })?.content ?? ""
                 var session = AgentSession(
@@ -68,15 +89,18 @@ public final class AgentExecutor: Equatable, @unchecked Sendable {
                 session.append(contentsOf: initialMessages.filter { $0.role != .system })
                 var iteration = 0
 
+                // Pre-compute tool definitions once to avoid repeated existential dispatch.
+                let toolDefinitions = tools.map { $0.definition }
+
                 do {
-                    while iteration < maxIterations {
+                    while iteration < configuration.maxIterations {
                         try Task.checkCancellation()
                         iteration += 1
                         continuation.yield(.iterationStarted(iteration))
 
                         let response = try await llm.chatCompletionWithTools(
                             messages: session.getHistory(),
-                            tools: tools.map { $0.definition },
+                            tools: toolDefinitions,
                             temperature: configuration.temperature
                         )
 
@@ -101,20 +125,25 @@ public final class AgentExecutor: Equatable, @unchecked Sendable {
                                 let parsedArgs = Self.parseArguments(rawArgs)
                                 let toolArgs = ToolArguments(jsonString: rawArgs)
 
+                                // Look up tool first so iconName is available for the calling event.
+                                let tool = tools.first(where: {
+                                    $0.definition.function.name == call.function.name
+                                })
+
                                 continuation.yield(.toolCalling(
                                     id: call.id,
                                     name: call.function.name,
-                                    arguments: toolArgs
+                                    arguments: toolArgs,
+                                    iconName: tool?.iconName
                                 ))
 
-                                guard let tool = tools.first(where: {
-                                    $0.definition.function.name == call.function.name
-                                }) else {
+                                guard let tool else {
                                     let result = "Tool '\(call.function.name)' not found"
                                     continuation.yield(.toolResult(
                                         id: call.id,
                                         name: call.function.name,
-                                        result: result
+                                        result: result,
+                                        iconName: nil
                                     ))
                                     session.append(.toolResult(id: call.id, content: result))
                                     continue
@@ -138,7 +167,8 @@ public final class AgentExecutor: Equatable, @unchecked Sendable {
                                         continuation.yield(.toolResult(
                                             id: call.id,
                                             name: call.function.name,
-                                            result: result
+                                            result: result,
+                                            iconName: tool.iconName
                                         ))
                                         session.append(.toolResult(id: call.id, content: result))
                                         continue
@@ -148,15 +178,30 @@ public final class AgentExecutor: Equatable, @unchecked Sendable {
                                 // Execute tool
                                 let result: String
                                 do {
-                                    result = try await tool.execute(arguments: parsedArgs)
+                                    let context = AgentToolContext { request in
+                                        let requestID = UUID().uuidString
+                                        continuation.yield(.awaitingUserInput(id: requestID, request: request))
+                                        let response = await withCheckedContinuation { (resCont: CheckedContinuation<UserInputResponse, Never>) in
+                                            self.pendingUserInput = resCont
+                                        }
+                                        self.pendingUserInput = nil
+                                        continuation.yield(.userInputResolved(id: requestID))
+                                        return response
+                                    } reportConfidence: { confidence in
+                                        continuation.yield(.confidenceUpdated(confidence))
+                                    }
+                                    result = try await tool.execute(arguments: parsedArgs, context: context)
                                 } catch {
                                     result = "Tool execution error: \(error.localizedDescription)"
                                 }
 
+                                try Task.checkCancellation()
+
                                 continuation.yield(.toolResult(
                                     id: call.id,
                                     name: call.function.name,
-                                    result: result
+                                    result: result,
+                                    iconName: tool.iconName
                                 ))
                                 session.append(.toolResult(id: call.id, content: result))
                             }
@@ -190,15 +235,23 @@ public final class AgentExecutor: Equatable, @unchecked Sendable {
     /// Resume after a HITL confirmation prompt.
     ///
     /// - Parameter approved: Whether the user approved the operation.
-    public func resume(approved: Bool) {
+    nonisolated public func resume(approved: Bool) {
         pendingConfirmation?.resume(returning: approved)
+    }
+
+    nonisolated public func submitUserInput(_ value: String) {
+        pendingUserInput?.resume(returning: .submitted(value))
+    }
+
+    nonisolated public func cancelUserInput() {
+        pendingUserInput?.resume(returning: .cancelled)
     }
 
     // MARK: - Argument Parsing
 
-    private static func parseArguments(_ arguments: String) -> [String: Any] {
+    nonisolated private static func parseArguments(_ arguments: String) -> [String: ToolValue] {
         guard let data = arguments.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+              let json = try? JSONDecoder().decode([String: ToolValue].self, from: data) else {
             return [:]
         }
         return json
