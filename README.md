@@ -2,6 +2,10 @@
 
 [简体中文](README.zh-CN.md)
 
+<p align="center">
+  <img src="Assets/MBAgentKit_Cover.jpg" alt="MBAgentKit" width="100%">
+</p>
+
 A lightweight, protocol-oriented **ReAct (Reason-Act) Agent framework** for Swift.
 
 Built for iOS 17+ / macOS 14+ with Swift 6 concurrency. Zero external dependencies in the core module.
@@ -313,6 +317,20 @@ runner.pruneFinished()
 ## MBAgentKitUI
 
 `MBAgentKitUI` provides a single `AgentRunningView` that renders the full agent execution state — thoughts, tool call timeline, HITL confirmation cards, user input cards, and the final answer.
+
+### Screenshots
+
+| Screenshot | Description |
+|:---:|---|
+| <img src="Assets/Screenshots/01-thought-running.png" width="300"> | **Thought + Tool Calling** — The agent is reasoning and has dispatched its first tool call. The compact strip shows a spinning indicator for the in-progress tool. |
+| <img src="Assets/Screenshots/02-compact-strip.png" width="300"> | **Compact Strip (Running)** — Multiple tool calls displayed in a horizontal strip. Completed tools show checkmarks; the active tool shows a spinner. |
+| <img src="Assets/Screenshots/03-list-completed.png" width="300"> | **List Mode (Completed)** — All tool calls finished, displayed as a vertical list with full result details. |
+| <img src="Assets/Screenshots/04-hitl-confirmation.png" width="300"> | **HITL Confirmation** — A sensitive tool (`send_email`) requires user approval before execution. Shows tool name, arguments, and Confirm/Cancel buttons. |
+| <img src="Assets/Screenshots/05-input-text.png" width="300"> | **User Input — Text** — The agent pauses to ask the user a free-text question. |
+| <img src="Assets/Screenshots/06-input-number.png" width="300"> | **User Input — Number** — Numeric input request with a decimal keypad. |
+| <img src="Assets/Screenshots/07-input-choice.png" width="300"> | **User Input — Single Choice** — The agent presents a list of options for the user to pick from. |
+| <img src="Assets/Screenshots/08-input-choice-other.png" width="300"> | **User Input — Choice + Custom** — Single choice with an additional free-text "other" field. |
+| <img src="Assets/Screenshots/09-answer-complete.png" width="300"> | **Final Answer** — The agent has completed its run and presents the final answer with the tool call history above. |
 
 ### AgentRunningView
 

@@ -2,6 +2,10 @@
 
 [English](README.md)
 
+<p align="center">
+  <img src="Assets/MBAgentKit_Cover.jpg" alt="MBAgentKit" width="100%">
+</p>
+
 一个轻量级、面向协议的 **ReAct (Reason-Act) Agent 框架**，基于 Swift 构建。
 
 支持 iOS 17+ / macOS 14+，使用 Swift 6 并发模型。核心模块零外部依赖。
@@ -313,6 +317,20 @@ runner.pruneFinished()
 ## MBAgentKitUI
 
 `MBAgentKitUI` 提供统一的 `AgentRunningView`，在一个视图中渲染完整的 Agent 执行状态——思考过程、工具调用时间线、HITL 确认卡片、用户输入卡片以及最终答案。
+
+### 效果截图
+
+| 截图 | 说明 |
+|:---:|---|
+| <img src="Assets/Screenshots/01-thought-running.png" width="300"> | **思考 + 工具调用中** — Agent 正在推理并派发了第一个工具调用。紧凑条显示进行中工具的旋转指示器。 |
+| <img src="Assets/Screenshots/02-compact-strip.png" width="300"> | **紧凑条模式（运行中）** — 多个工具调用以水平条展示。已完成的显示勾号，进行中的显示旋转指示器。 |
+| <img src="Assets/Screenshots/03-list-completed.png" width="300"> | **列表模式（已完成）** — 所有工具调用完成，以纵向列表展示完整的结果详情。 |
+| <img src="Assets/Screenshots/04-hitl-confirmation.png" width="300"> | **HITL 确认** — 敏感工具（`send_email`）需要用户审批才能执行。展示工具名、参数以及确认/取消按钮。 |
+| <img src="Assets/Screenshots/05-input-text.png" width="300"> | **用户输入 — 文本** — Agent 暂停执行，向用户提出自由文本问题。 |
+| <img src="Assets/Screenshots/06-input-number.png" width="300"> | **用户输入 — 数字** — 数字输入请求，使用数字键盘。 |
+| <img src="Assets/Screenshots/07-input-choice.png" width="300"> | **用户输入 — 单选** — Agent 展示选项列表供用户选择。 |
+| <img src="Assets/Screenshots/08-input-choice-other.png" width="300"> | **用户输入 — 单选+自定义** — 单选列表附带一个自由文本「其他」输入框。 |
+| <img src="Assets/Screenshots/09-answer-complete.png" width="300"> | **最终答案** — Agent 运行结束，展示最终答案，上方附带工具调用历史。 |
 
 ### AgentRunningView
 
