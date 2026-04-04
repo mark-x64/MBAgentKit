@@ -11,6 +11,8 @@ public struct HITLConfirmationCardView: View {
     public let id: String
     public let toolName: String
     public let arguments: ToolArguments
+    public let confirmLabel: String
+    public let cancelLabel: String
     public let onConfirm: () -> Void
     public let onReject: () -> Void
 
@@ -18,12 +20,16 @@ public struct HITLConfirmationCardView: View {
         id: String,
         toolName: String,
         arguments: ToolArguments,
+        confirmLabel: String = "Confirm",
+        cancelLabel: String = "Cancel",
         onConfirm: @escaping () -> Void,
         onReject: @escaping () -> Void
     ) {
         self.id = id
         self.toolName = toolName
         self.arguments = arguments
+        self.confirmLabel = confirmLabel
+        self.cancelLabel = cancelLabel
         self.onConfirm = onConfirm
         self.onReject = onReject
     }
@@ -39,7 +45,7 @@ public struct HITLConfirmationCardView: View {
 
                 HStack(spacing: 12) {
                     Button(role: .destructive, action: onReject) {
-                        Label("Cancel", systemImage: "xmark")
+                        Label(cancelLabel, systemImage: "xmark")
                             .labelStyle(.iconOnly)
                     }
                     .buttonBorderShape(.circle)
@@ -47,10 +53,9 @@ public struct HITLConfirmationCardView: View {
                     .foregroundStyle(.red)
 
                     Button(action: onConfirm) {
-                        Text("Confirm")
+                        Text(confirmLabel)
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(.indigo)
                 }
             }
 

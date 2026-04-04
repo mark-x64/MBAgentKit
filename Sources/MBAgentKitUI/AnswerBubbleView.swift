@@ -17,7 +17,7 @@ public struct AnswerBubbleView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Answer")
                 .font(.caption2.weight(.bold))
-                .foregroundStyle(.indigo)
+                .foregroundStyle(.tint)
 
             Text(text)
                 .font(.callout)

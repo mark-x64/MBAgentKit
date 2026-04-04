@@ -8,6 +8,11 @@ import MBAgentKit
 
 public struct HITLUserInputCardView: View {
     public let request: PendingUserInput
+    public let submitLabel: String
+    public let cancelLabel: String
+    public let textPlaceholder: String
+    public let numberPlaceholder: String
+    public let otherPlaceholder: String
     public let onSubmit: (String) -> Void
     public let onCancel: () -> Void
 
@@ -17,10 +22,20 @@ public struct HITLUserInputCardView: View {
 
     public init(
         request: PendingUserInput,
+        submitLabel: String = "Submit",
+        cancelLabel: String = "Cancel",
+        textPlaceholder: String = "Enter text",
+        numberPlaceholder: String = "Enter a number",
+        otherPlaceholder: String = "Enter custom value",
         onSubmit: @escaping (String) -> Void,
         onCancel: @escaping () -> Void
     ) {
         self.request = request
+        self.submitLabel = submitLabel
+        self.cancelLabel = cancelLabel
+        self.textPlaceholder = textPlaceholder
+        self.numberPlaceholder = numberPlaceholder
+        self.otherPlaceholder = otherPlaceholder
         self.onSubmit = onSubmit
         self.onCancel = onCancel
     }
@@ -32,7 +47,7 @@ public struct HITLUserInputCardView: View {
                     .font(.headline)
                 Spacer()
                 Button(role: .destructive, action: onCancel) {
-                    Label("Cancel", systemImage: "xmark")
+                    Label(cancelLabel, systemImage: "xmark")
                         .labelStyle(.iconOnly)
                 }
                 .buttonStyle(.bordered)
@@ -45,7 +60,7 @@ public struct HITLUserInputCardView: View {
             switch request.request.kind {
             case .text(let placeholder):
                 textInputSection(
-                    placeholder: placeholder ?? "请输入",
+                    placeholder: placeholder ?? textPlaceholder,
                     keyboardType: .default
                 )
 
@@ -54,7 +69,7 @@ public struct HITLUserInputCardView: View {
 
             case .number(let placeholder):
                 textInputSection(
-                    placeholder: placeholder ?? "请输入数字",
+                    placeholder: placeholder ?? numberPlaceholder,
                     keyboardType: .decimalPad
                 )
 
@@ -79,7 +94,7 @@ public struct HITLUserInputCardView: View {
                 .keyboardType(keyboardType)
                 .focused($textFieldFocused)
 
-            Button("提交") {
+            Button(submitLabel) {
                 onSubmit(textValue)
             }
             .buttonStyle(.borderedProminent)
@@ -108,7 +123,7 @@ public struct HITLUserInputCardView: View {
                         Spacer()
                         if selectedChoice == option {
                             Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.indigo)
+                                .foregroundStyle(.tint)
                         } else {
                             Image(systemName: "chevron.right")
                                 .font(.caption)
@@ -123,11 +138,11 @@ public struct HITLUserInputCardView: View {
             }
 
             if allowsCustomInput {
-                TextField(customPlaceholder ?? "请补充说明", text: $textValue, axis: .vertical)
+                TextField(customPlaceholder ?? otherPlaceholder, text: $textValue, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                     .focused($textFieldFocused)
 
-                Button("提交") {
+                Button(submitLabel) {
                     let custom = textValue.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !custom.isEmpty {
                         onSubmit(custom)
