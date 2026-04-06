@@ -120,6 +120,15 @@ private struct ToolPill: View {
         .buttonStyle(.plain)
         .animation(.snappy, value: isExpanded)
         .animation(.snappy, value: data.isCompleted)
+        // 完成时先保持展开 1 秒，让用户看到工具名，再收起为紧凑圆点
+        .onChange(of: data.isCompleted) { _, completed in
+            guard completed else { return }
+            isExpanded = true
+            Task {
+                try? await Task.sleep(for: .seconds(1))
+                withAnimation(.snappy) { isExpanded = false }
+            }
+        }
     }
 }
 
