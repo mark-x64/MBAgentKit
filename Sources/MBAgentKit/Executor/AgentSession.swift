@@ -59,20 +59,41 @@ public struct AgentSession: Sendable {
     // MARK: - Sliding Window (sync fallback)
 
     /// Discards oldest non-system messages when the count exceeds the limit.
+    ///
+    /// Ensures the trimmed sequence never starts with an orphaned `.tool` result message
+    /// (which would cause API errors because the corresponding tool-calls assistant message
+    /// was dropped) or an assistant tool-calls message whose results were partially trimmed.
     private mutating func trimIfNeeded() {
         guard messages.count > maxMessageCount else { return }
 
-        let systemPrompt = messages.first { $0.role == .system }
+        let systemMsg = messages.first { $0.role == .system }
+        let keepCount = maxMessageCount - (systemMsg != nil ? 1 : 0)
+        var recent = Array(messages.suffix(keepCount))
 
-        let keepCount = maxMessageCount - 1
-        let recentMessages = messages.suffix(keepCount)
+        // Drop leading orphaned tool-result messages (their tool_calls assistant was trimmed).
+        while recent.first?.role == .tool {
+            recent.removeFirst()
+        }
+
+        // Drop a leading assistant-with-toolCalls message if any of its results were also trimmed.
+        if let first = recent.first,
+           first.role == .assistant,
+           let calls = first.toolCalls {
+            let callIds = Set(calls.map(\.id))
+            let resultIds = Set(
+                recent.dropFirst()
+                    .prefix(while: { $0.role == .tool })
+                    .compactMap(\.toolCallId)
+            )
+            if !callIds.isSubset(of: resultIds) {
+                recent.removeFirst()
+                while recent.first?.role == .tool { recent.removeFirst() }
+            }
+        }
 
         var newMessages: [ChatMessage] = []
-        if let systemPrompt {
-            newMessages.append(systemPrompt)
-        }
-        newMessages.append(contentsOf: recentMessages)
-
+        if let systemMsg { newMessages.append(systemMsg) }
+        newMessages.append(contentsOf: recent)
         self.messages = newMessages
     }
 }

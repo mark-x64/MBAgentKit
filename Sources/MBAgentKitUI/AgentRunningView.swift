@@ -39,6 +39,8 @@ public struct AgentRunningView: View {
     @Binding public var displayMode: AgentStripDisplayMode
     public let onConfirm: () -> Void
     public let onReject: () -> Void
+    /// Optional: approve current and all future confirmations in this run.
+    public let onApproveAll: (() -> Void)?
     public let onSubmitInput: (String) -> Void
     public let onCancelInput: () -> Void
 
@@ -53,6 +55,7 @@ public struct AgentRunningView: View {
         displayMode: Binding<AgentStripDisplayMode>,
         onConfirm: @escaping () -> Void,
         onReject: @escaping () -> Void,
+        onApproveAll: (() -> Void)? = nil,
         onSubmitInput: @escaping (String) -> Void = { _ in },
         onCancelInput: @escaping () -> Void = {}
     ) {
@@ -66,6 +69,7 @@ public struct AgentRunningView: View {
         self._displayMode = displayMode
         self.onConfirm = onConfirm
         self.onReject = onReject
+        self.onApproveAll = onApproveAll
         self.onSubmitInput = onSubmitInput
         self.onCancelInput = onCancelInput
     }
@@ -117,7 +121,8 @@ public struct AgentRunningView: View {
                     toolName: pending.toolName,
                     arguments: pending.arguments,
                     onConfirm: onConfirm,
-                    onReject: onReject
+                    onReject: onReject,
+                    onApproveAll: onApproveAll
                 )
                 .transition(.scale(scale: 0.9).combined(with: .opacity))
             } else if let pendingInput = pendingUserInput {

@@ -15,6 +15,8 @@ public struct HITLConfirmationCardView: View {
     public let cancelLabel: String
     public let onConfirm: () -> Void
     public let onReject: () -> Void
+    /// Optional: approve this and all future confirmations in the current run.
+    public let onApproveAll: (() -> Void)?
 
     public init(
         id: String,
@@ -23,7 +25,8 @@ public struct HITLConfirmationCardView: View {
         confirmLabel: String = "Confirm",
         cancelLabel: String = "Cancel",
         onConfirm: @escaping () -> Void,
-        onReject: @escaping () -> Void
+        onReject: @escaping () -> Void,
+        onApproveAll: (() -> Void)? = nil
     ) {
         self.id = id
         self.toolName = toolName
@@ -32,6 +35,7 @@ public struct HITLConfirmationCardView: View {
         self.cancelLabel = cancelLabel
         self.onConfirm = onConfirm
         self.onReject = onReject
+        self.onApproveAll = onApproveAll
     }
 
     public var body: some View {
@@ -74,6 +78,17 @@ public struct HITLConfirmationCardView: View {
                             .lineLimit(2)
                     }
                 }
+            }
+
+            if let onApproveAll {
+                Divider()
+                Button(action: onApproveAll) {
+                    Label("Approve All", systemImage: "checkmark.seal.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
         .padding(16)

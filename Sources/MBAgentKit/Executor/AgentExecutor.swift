@@ -26,10 +26,14 @@ public final class AgentExecutor: Equatable, @unchecked Sendable {
     /// Backward-compatible accessor.
     nonisolated public var maxIterations: Int { configuration.maxIterations }
 
-    /// Lock protecting continuations across actor boundaries.
+    /// Lock protecting continuations and mutable state across actor boundaries.
     nonisolated private let lock = NSLock()
     nonisolated(unsafe) private var _pendingConfirmation: CheckedContinuation<Bool, Never>?
     nonisolated(unsafe) private var _pendingUserInput: CheckedContinuation<UserInputResponse, Never>?
+    /// Set to true by ``approveAll()`` to skip future HITL prompts in this run.
+    nonisolated(unsafe) private var _autoApproveAll: Bool = false
+    /// Snapshot of session messages captured at the end of the last run.
+    nonisolated(unsafe) private var _finalSessionMessages: [ChatMessage] = []
 
     nonisolated private var pendingConfirmation: CheckedContinuation<Bool, Never>? {
         get { lock.withLock { _pendingConfirmation } }
@@ -43,6 +47,12 @@ public final class AgentExecutor: Equatable, @unchecked Sendable {
 
     /// Whether the executor is currently waiting for user confirmation.
     nonisolated public var isWaitingForConfirmation: Bool { pendingConfirmation != nil }
+
+    /// Full session messages (excluding system prompt) captured at the end of the last run.
+    /// Safe to read after the event stream has finished.
+    nonisolated public var finalSessionMessages: [ChatMessage] {
+        lock.withLock { _finalSessionMessages }
+    }
 
     /// Primary initializer using ``AgentConfiguration``.
     nonisolated public init(
@@ -107,6 +117,9 @@ public final class AgentExecutor: Equatable, @unchecked Sendable {
                         switch response {
                         case .text(let content):
                             let assistantMsg = ChatMessage.assistant(content)
+                            session.append(assistantMsg)
+                            let snap = session.messages
+                            self.lock.withLock { self._finalSessionMessages = snap }
                             continuation.yield(.answer(content))
                             continuation.yield(.completed(finalMessage: assistantMsg))
                             continuation.finish()
@@ -149,8 +162,8 @@ public final class AgentExecutor: Equatable, @unchecked Sendable {
                                     continue
                                 }
 
-                                // HITL interception
-                                if tool.requiresConfirmation {
+                                // HITL interception — skip if user has approved all remaining calls.
+                                if tool.requiresConfirmation && !self.lock.withLock({ self._autoApproveAll }) {
                                     continuation.yield(.awaitingConfirmation(
                                         id: call.id,
                                         toolName: call.function.name,
@@ -217,6 +230,9 @@ public final class AgentExecutor: Equatable, @unchecked Sendable {
 
                     let note = "Maximum iterations reached. Please re-run if further analysis is needed."
                     let finalMsg = ChatMessage.assistant(note)
+                    session.append(finalMsg)
+                    let snap = session.messages
+                    self.lock.withLock { self._finalSessionMessages = snap }
                     continuation.yield(.answer(note))
                     continuation.yield(.completed(finalMessage: finalMsg))
                     continuation.finish()
@@ -237,6 +253,17 @@ public final class AgentExecutor: Equatable, @unchecked Sendable {
     /// - Parameter approved: Whether the user approved the operation.
     nonisolated public func resume(approved: Bool) {
         pendingConfirmation?.resume(returning: approved)
+    }
+
+    /// Approve the current pending confirmation and all future confirmations in this run.
+    ///
+    /// Call this when the user taps "Approve All" to skip individual HITL prompts for the remainder of the agent loop.
+    nonisolated public func approveAll() {
+        let cont = lock.withLock { () -> CheckedContinuation<Bool, Never>? in
+            _autoApproveAll = true
+            return _pendingConfirmation
+        }
+        cont?.resume(returning: true)
     }
 
     nonisolated public func submitUserInput(_ value: String) {
