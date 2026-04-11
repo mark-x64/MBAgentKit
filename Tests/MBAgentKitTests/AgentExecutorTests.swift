@@ -71,7 +71,7 @@ struct AgentExecutorTests {
 
         for try await event in stream {
             switch event {
-            case .toolResult(_, _, let result):
+            case .toolResult(_, _, let result, _):
                 toolResults.append(result)
             case .answer(let text):
                 finalAnswer = text
@@ -106,7 +106,7 @@ struct AgentExecutorTests {
         var toolResults: [String] = []
 
         for try await event in stream {
-            if case .toolResult(_, _, let result) = event {
+            if case .toolResult(_, _, let result, _) = event {
                 toolResults.append(result)
             }
         }
