@@ -22,7 +22,7 @@ Built for iOS 17+ / macOS 14+ with Swift 6 strict concurrency. The core module h
 
 - **ReAct Loop Engine** — Iterative reason-then-act execution with `AsyncThrowingStream<AgentEvent>` output
 - **Human-In-The-Loop (HITL)** — Intercept sensitive tool calls for user approval before execution; rejection feeds back into the loop
-- **User Input Requests** — Tools can pause execution and ask the user a question (text, number, single-choice, choice-with-other) without a full LLM round-trip
+- **User Input Requests** — Tools can pause execution and ask the user a question (text, number, single-choice, choice-with-other, slider) without a full LLM round-trip
 - **Confidence Reporting** — Tools report a 0–100 confidence score; the executor emits `.confidenceUpdated` and surfaces it in `AgentRunState`
 - **Pluggable Context Compression** — Sliding-window fallback or async LLM-based summarization; never orphans tool-call pairs
 - **Sub-Agents** — Spawn child `AgentExecutor` instances as tools to delegate focused subtasks
@@ -189,13 +189,14 @@ let clarifyTool = BlockTool(
 | `askForNumber(title:prompt:placeholder:)` | Numeric field, returns `Double?` |
 | `askForChoice(title:prompt:options:)` | Single-choice picker |
 | `askForChoiceWithOther(title:prompt:options:customPlaceholder:)` | Choice picker with an additional free-text "other" field |
+| `askForSlider(title:prompt:min:max:step:defaultValue:unit:labels:)` | Numeric slider (continuous or stepped, with optional tick labels), returns `Double?` |
 
 All methods return `nil` if the user cancels. Handle in the UI with:
 
 ```swift
 case .awaitingUserInput(_, let request):
     // request.title, request.prompt, request.kind
-    // (.text, .singleChoice, .number, .choiceWithOther)
+    // (.text, .singleChoice, .number, .choiceWithOther, .slider)
     executor.submitUserInput("user's answer")   // or cancelUserInput()
 ```
 

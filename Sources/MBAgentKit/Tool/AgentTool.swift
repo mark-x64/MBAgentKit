@@ -82,6 +82,47 @@ public struct AgentToolContext: Sendable {
         return nil
     }
 
+    /// Ask the user to pick a numeric value using a slider.
+    ///
+    /// - Parameters:
+    ///   - min: Lower bound, inclusive.
+    ///   - max: Upper bound, inclusive. Must be greater than `min`.
+    ///   - step: Discrete step size. Pass `nil` for a continuous slider.
+    ///   - defaultValue: Initial position. Defaults to `min` if `nil`.
+    ///     Clamped into `[min, max]`.
+    ///   - unit: Optional unit label shown next to the value (e.g. `"min"`).
+    ///   - labels: Optional tick labels. Requires `step` and matching count
+    ///     (`Int((max - min) / step) + 1`).
+    /// - Returns: The chosen `Double`, or `nil` if the user cancelled.
+    nonisolated public func askForSlider(
+        title: String,
+        prompt: String,
+        min: Double,
+        max: Double,
+        step: Double? = nil,
+        defaultValue: Double? = nil,
+        unit: String? = nil,
+        labels: [String]? = nil
+    ) async -> Double? {
+        let clampedDefault = Swift.min(Swift.max(defaultValue ?? min, min), max)
+        let response = await requestUserInput(
+            UserInputRequest(
+                title: title,
+                prompt: prompt,
+                kind: .slider(
+                    min: min,
+                    max: max,
+                    step: step,
+                    defaultValue: clampedDefault,
+                    unit: unit,
+                    labels: labels
+                )
+            )
+        )
+        guard case .submitted(let value) = response else { return nil }
+        return Double(value.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
     nonisolated public func updateConfidence(_ value: Double) {
         reportConfidence(value)
     }

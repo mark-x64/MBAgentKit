@@ -116,6 +116,24 @@ public enum UserInputKind: Sendable {
     case singleChoice(options: [String])
     case number(placeholder: String?)
     case singleChoiceWithOther(options: [String], customPlaceholder: String?)
+    /// Slider with optional discrete steps.
+    ///
+    /// - Parameters:
+    ///   - min: Lower bound (inclusive).
+    ///   - max: Upper bound (inclusive). Must be greater than `min`.
+    ///   - step: Discrete step size. `nil` for a continuous slider.
+    ///   - defaultValue: Initial slider position. Clamped into `[min, max]`.
+    ///   - unit: Optional unit label shown next to the current value (e.g. `"min"`, `"%"`).
+    ///   - labels: Optional tick labels. When non-empty, one label per discrete stop
+    ///     (requires `step` and `labels.count == Int((max - min) / step) + 1`).
+    case slider(
+        min: Double,
+        max: Double,
+        step: Double?,
+        defaultValue: Double,
+        unit: String?,
+        labels: [String]?
+    )
 }
 
 public struct UserInputRequest: Sendable {

@@ -22,7 +22,7 @@
 
 - **ReAct 循环引擎** — 迭代式推理-执行循环，以 `AsyncThrowingStream<AgentEvent>` 输出所有状态变化
 - **Human-In-The-Loop (HITL)** — 拦截敏感工具调用，等待用户审批后再执行；拒绝结果会反馈回循环
-- **用户输入请求** — 工具可暂停执行并直接向用户提问（文本、数字、单选、带「其他」的选择），无需 LLM 完整往返
+- **用户输入请求** — 工具可暂停执行并直接向用户提问（文本、数字、单选、带「其他」的选择、滑块），无需 LLM 完整往返
 - **置信度上报** — 工具上报 0–100 置信分，执行器发出 `.confidenceUpdated` 并同步到 `AgentRunState`
 - **可插拔上下文压缩** — 滑动窗口兜底，或异步 LLM 智能摘要；绝不拆分工具调用对
 - **子 Agent** — 以工具形式生成子 `AgentExecutor`，委派专注子任务
@@ -189,13 +189,14 @@ let clarifyTool = BlockTool(
 | `askForNumber(title:prompt:placeholder:)` | 数字输入框，返回 `Double?` |
 | `askForChoice(title:prompt:options:)` | 固定选项的单选选择器 |
 | `askForChoiceWithOther(title:prompt:options:customPlaceholder:)` | 带「其他」自定义文本框的选择器 |
+| `askForSlider(title:prompt:min:max:step:defaultValue:unit:labels:)` | 数值滑块（支持连续 / 离散步长 / 刻度标签），返回 `Double?` |
 
 所有方法在用户取消时返回 `nil`。在 UI 中响应：
 
 ```swift
 case .awaitingUserInput(_, let request):
     // request.title, request.prompt, request.kind
-    // (.text, .singleChoice, .number, .choiceWithOther)
+    // (.text, .singleChoice, .number, .choiceWithOther, .slider)
     executor.submitUserInput("用户的回答")   // 或 cancelUserInput()
 ```
 
