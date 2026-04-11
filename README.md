@@ -6,21 +6,29 @@
   <img src="Assets/MBAgentKit_Cover.jpg" alt="MBAgentKit" width="100%">
 </p>
 
+<p align="center">
+  <img src="https://img.shields.io/badge/Swift-6.0-F05138?logo=swift&logoColor=white" alt="Swift 6.0">
+  <img src="https://img.shields.io/badge/iOS-17%2B-007AFF?logo=apple&logoColor=white" alt="iOS 17+">
+  <img src="https://img.shields.io/badge/macOS-14%2B-007AFF?logo=apple&logoColor=white" alt="macOS 14+">
+  <img src="https://img.shields.io/badge/SPM-compatible-34C759" alt="SPM compatible">
+  <img src="https://img.shields.io/badge/License-MIT-lightgrey" alt="MIT License">
+</p>
+
 A lightweight, protocol-oriented **ReAct (Reason-Act) Agent framework** for Swift.
 
-Built for iOS 17+ / macOS 14+ with Swift 6 concurrency. Zero external dependencies in the core module.
+Built for iOS 17+ / macOS 14+ with Swift 6 strict concurrency. The core module has zero external dependencies — add `MBAgentKitOpenAI` only if you need the MacPaw/OpenAI SDK integration.
 
 ## Features
 
-- **ReAct Loop Engine** — Iterative reason-then-act execution with async event streaming
-- **Human-In-The-Loop (HITL)** — Intercept sensitive tool calls for user approval before execution
-- **User Input Requests** — Tools can pause execution and ask the user a question (text, single-choice, number, choice-with-other)
-- **Confidence Reporting** — Tools report their confidence level; the executor can surface this to the UI and use it to decide when to clarify
-- **Pluggable Context Compression** — Sliding window (default) or LLM-based summarization to manage conversation history
-- **Sub-Agents** — Spawn child executors to delegate focused subtasks
-- **Skills** — Composable bundles of system prompt + tools + configuration
-- **Background Task Runner** — Manage concurrent agent runs with status tracking and cancellation
-- **Protocol-Based LLM Abstraction** — Swap providers (OpenAI, DeepSeek, etc.) without changing agent logic
+- **ReAct Loop Engine** — Iterative reason-then-act execution with `AsyncThrowingStream<AgentEvent>` output
+- **Human-In-The-Loop (HITL)** — Intercept sensitive tool calls for user approval before execution; rejection feeds back into the loop
+- **User Input Requests** — Tools can pause execution and ask the user a question (text, number, single-choice, choice-with-other) without a full LLM round-trip
+- **Confidence Reporting** — Tools report a 0–100 confidence score; the executor emits `.confidenceUpdated` and surfaces it in `AgentRunState`
+- **Pluggable Context Compression** — Sliding-window fallback or async LLM-based summarization; never orphans tool-call pairs
+- **Sub-Agents** — Spawn child `AgentExecutor` instances as tools to delegate focused subtasks
+- **Skills** — Composable bundles of system prompt + tools + configuration, usable standalone or as sub-agent tools
+- **Background Task Runner** — `AgentTaskRunner` manages concurrent agent runs with status tracking and cancellation
+- **Protocol-Based LLM Abstraction** — Swap providers (OpenAI, DeepSeek, Ollama, …) by conforming to `LLMServiceProtocol`
 
 ## Architecture
 
@@ -31,27 +39,62 @@ Built for iOS 17+ / macOS 14+ with Swift 6 concurrency. Zero external dependenci
 │  AgentExecutor ←── AgentSession                  │
 │       │                  │                       │
 │       ├── AgentTool      ├── ContextStrategy     │
-│       │   └─ BlockTool   │   ├─ SlidingWindow    │
+│       │   ├─ BlockTool   │   ├─ SlidingWindow    │
 │       │   └─ SubAgent    │   └─ Summarizing      │
 │       │                  │                       │
 │       ├── AgentSkill     └── AgentConfiguration  │
 │       ├── AgentTaskRunner                        │
 │       └── AgentEvent (async stream)              │
 │                                                  │
-│  LLMServiceProtocol ←── ChatMessage, Tool, ...   │
-└──────────────────────┬──────────────────────────-┘
-                       │
-        ┌──────────────┼──────────────┐
-        ▼              ▼              ▼
-  MBAgentKitUI   MBAgentKitOpenAI   (Your LLM)
-  (SwiftUI)      (MacPaw/OpenAI)
+│  LLMServiceProtocol ←── ChatMessage, Tool, …     │
+└──────────────────┬───────────────────────────────┘
+                   │
+      ┌────────────┼────────────┐
+      ▼            ▼            ▼
+MBAgentKitUI  MBAgentKitOpenAI  (Your LLM)
+(SwiftUI)     (MacPaw/OpenAI)
 ```
+
+## Modules
+
+| Module | Dependencies | Purpose |
+|--------|-------------|---------|
+| `MBAgentKit` | None | Core engine, protocols, strategies |
+| `MBAgentKitUI` | MBAgentKit | SwiftUI components (ThoughtBubble, HITLCard, ToolCallStrip, …) |
+| `MBAgentKitOpenAI` | MBAgentKit, MacPaw/OpenAI | OpenAI-compatible provider (OpenAI, DeepSeek, etc.) |
+
+## Installation
+
+### Swift Package Manager
+
+Add the package in Xcode via **File → Add Package Dependencies**, or in `Package.swift`:
+
+```swift
+dependencies: [
+    .package(url: "https://github.com/mark-x64/MBAgentKit", from: "1.0.0")
+]
+```
+
+Then add the targets you need:
+
+```swift
+.target(
+    name: "YourApp",
+    dependencies: [
+        .product(name: "MBAgentKit", package: "MBAgentKit"),
+        .product(name: "MBAgentKitUI", package: "MBAgentKit"),       // optional
+        .product(name: "MBAgentKitOpenAI", package: "MBAgentKit"),   // optional
+    ]
+)
+```
+
+Only import `MBAgentKitOpenAI` if you are using the MacPaw/OpenAI SDK. `MBAgentKit` core and `MBAgentKitUI` have no external dependencies.
 
 ## Quick Start
 
 ### 1. Define Tools
 
-Tool arguments are now typed as `[String: ToolValue]`. Use `.stringValue`, `.number`, `.bool`, `.array` etc. to extract values:
+Tool arguments are typed as `[String: ToolValue]`. Use `.stringValue`, `.numberValue`, `.bool`, `.array` to extract values:
 
 ```swift
 import MBAgentKit
@@ -86,9 +129,9 @@ let stream = executor.run(messages: [
 
 for try await event in stream {
     switch event {
-    case .thought(let text):  print("💭 \(text)")
-    case .answer(let text):   print("✅ \(text)")
-    case .toolResult(_, let name, let result):
+    case .thought(let text):       print("💭 \(text)")
+    case .answer(let text):        print("✅ \(text)")
+    case .toolResult(_, let name, let result, _):
         print("🔧 \(name): \(result)")
     default: break
     }
@@ -107,9 +150,8 @@ let deleteTool = BlockTool(
         properties: ["id": ToolProperty(type: "string", description: "Item ID")],
         required: ["id"]
     ),
-    requiresConfirmation: true  // ← pauses for user approval
+    requiresConfirmation: true   // ← suspends until executor.resume(approved:) is called
 ) { args, _ in
-    // only runs after executor.resume(approved: true)
     return "Deleted"
 }
 ```
@@ -117,16 +159,14 @@ let deleteTool = BlockTool(
 Handle the confirmation event:
 
 ```swift
-for try await event in stream {
 case .awaitingConfirmation(let id, let toolName, let args):
-    // Show confirmation UI, then:
-    executor.resume(approved: true)  // or false to reject
-}
+    // Present confirmation UI, then:
+    executor.resume(approved: true)   // or false to reject
 ```
 
 ## User Input Requests
 
-Tools can pause execution to ask the user a question directly, without requiring a full round-trip through the LLM. Use the `AgentToolContext` passed as the second argument to your `BlockTool` closure:
+Tools can pause execution and collect user input directly via `AgentToolContext`, without a full LLM round-trip:
 
 ```swift
 let clarifyTool = BlockTool(
@@ -134,7 +174,6 @@ let clarifyTool = BlockTool(
     description: "Ask the user for their budget",
     parameters: ToolParameters(properties: [:], required: [])
 ) { _, context in
-    // Free-text input
     guard let budget = await context.askForText(
         title: "Budget",
         prompt: "What is your budget?",
@@ -144,23 +183,17 @@ let clarifyTool = BlockTool(
 }
 ```
 
-### Available Input Methods
-
 | Method | Description |
 |--------|-------------|
 | `askForText(title:prompt:placeholder:)` | Free-text field |
 | `askForNumber(title:prompt:placeholder:)` | Numeric field, returns `Double?` |
-| `askForChoice(title:prompt:options:)` | Single-choice picker from a fixed list |
+| `askForChoice(title:prompt:options:)` | Single-choice picker |
 | `askForChoiceWithOther(title:prompt:options:customPlaceholder:)` | Choice picker with an additional free-text "other" field |
 
-All methods return `nil` if the user cancels.
-
-### Handling in the UI
-
-The executor emits `.awaitingUserInput` and `.userInputResolved` events. If you use `AgentRunningView` from `MBAgentKitUI`, these are handled automatically. For a custom UI, respond to:
+All methods return `nil` if the user cancels. Handle in the UI with:
 
 ```swift
-case .awaitingUserInput(let id, let request):
+case .awaitingUserInput(_, let request):
     // request.title, request.prompt, request.kind
     // (.text, .singleChoice, .number, .choiceWithOther)
     executor.submitUserInput("user's answer")   // or cancelUserInput()
@@ -168,90 +201,57 @@ case .awaitingUserInput(let id, let request):
 
 ## Confidence Reporting
 
-Tools can report their current confidence level via `context.updateConfidence(_:)`. The executor surfaces this as a `.confidenceUpdated(Double)` event and `AgentRunState.currentConfidence`.
-
-A common pattern is to gate clarification on low confidence:
+Tools report a 0–100 confidence level via `context.updateConfidence(_:)`. The executor emits `.confidenceUpdated(Double)` and `AgentRunState.currentConfidence` stays in sync.
 
 ```swift
 let analyzeTool = BlockTool(
     name: "analyze",
     description: "Analyze and decide",
     parameters: ToolParameters(
-        properties: [
-            "confidence": ToolProperty(type: "number", description: "0–100")
-        ],
+        properties: ["confidence": ToolProperty(type: "number", description: "0–100")],
         required: ["confidence"]
     )
 ) { args, context in
     let confidence = args["confidence"]?.numberValue ?? 0
     context.updateConfidence(confidence)
-
-    guard confidence >= 70 else {
-        return "Confidence too low — need more information."
-    }
+    guard confidence >= 70 else { return "Confidence too low — need more information." }
     return "Decision: proceed."
 }
 ```
 
 ## Context Compression
 
-### Problem
-
-Long agent conversations exceed context windows. The default sliding window simply drops oldest messages, losing important context.
-
-### Solution: Summarizing Strategy
+Long agent conversations exceed LLM context windows. By default, `AgentSession` applies a sync sliding-window trim on every append. For smarter compression:
 
 ```swift
 let strategy = SummarizingStrategy(
-    llm: myLLMService,    // uses a cheap LLM call to summarize
-    recentToKeep: 10       // keep last 10 messages intact
+    llm: myLLMService,   // one inexpensive LLM call per compression
+    recentToKeep: 10     // keep the last 10 messages verbatim
 )
 
 let config = AgentConfiguration(
     sessionMaxMessages: 20,
     contextStrategy: strategy
 )
-
-let executor = AgentExecutor(
-    llm: myLLMService,
-    tools: myTools,
-    configuration: config
-)
 ```
 
 **How it works:**
 
 ```
-Before compression (25 messages):
-[System] [User₁] [Asst₁] [Tool₁] [Result₁] ... [User₁₀] [Asst₁₀]
-         ├─────── old (summarized) ────────┤     ├── recent (kept) ──┤
+Before (25 messages):
+[System] [U₁][A₁][T₁][R₁] … [U₁₀][A₁₀]
+         ├────── summarised ──────┤ ├─ kept ─┤
 
-After compression (12 messages):
-[System] [Summary of old conversation] [User₆] [Asst₆] ... [User₁₀] [Asst₁₀]
+After (12 messages):
+[System] [Summary of earlier conversation] [U₆][A₆] … [U₁₀][A₁₀]
 ```
 
-- Preserves key facts, decisions, and tool results in the summary
-- Never splits tool-call sequences (call + result stay together)
-- Falls back to sliding window if the summarization LLM call fails
+- Tool-call pairs (call + result) are never split
+- Falls back to sliding window if the summarisation call fails
 
-### Custom Strategies
-
-Implement `ContextStrategy` for domain-specific compression:
-
-```swift
-struct MyStrategy: ContextStrategy {
-    func compress(
-        messages: [ChatMessage],
-        limit: Int
-    ) async throws -> [ChatMessage] {
-        // your logic here
-    }
-}
-```
+Implement `ContextStrategy` for domain-specific compression logic.
 
 ## Sub-Agents
-
-Delegate subtasks to focused child agents:
 
 ```swift
 let researcher = SubAgentTool(
@@ -262,22 +262,18 @@ let researcher = SubAgentTool(
     systemPrompt: "You are a research assistant. Be thorough and cite sources."
 )
 
-// Parent agent can now call "research" as a tool
-let executor = AgentExecutor(
-    llm: myLLMService,
-    tools: [researcher, writeTool]
-)
+let executor = AgentExecutor(llm: myLLMService, tools: [researcher, writeTool])
 ```
 
 ## Skills
 
-Pre-configured agent modes:
+Pre-configured agent modes, usable standalone or embedded as sub-agent tools:
 
 ```swift
 let codeReview = AgentSkill(
     name: "code_review",
     description: "Review code for bugs and best practices",
-    systemPrompt: "You are an expert code reviewer...",
+    systemPrompt: "You are an expert code reviewer…",
     tools: [readFileTool, searchTool],
     configuration: AgentConfiguration(maxIterations: 10)
 )
@@ -285,13 +281,11 @@ let codeReview = AgentSkill(
 // Run directly
 let stream = codeReview.run(llm: myLLMService, userMessage: "Review auth.swift")
 
-// Or use as a sub-agent tool in a parent agent
+// Or compose into a parent agent
 let parentTools = [codeReview.asSubAgentTool(llm: myLLMService)]
 ```
 
 ## Background Task Runner
-
-Run multiple agents concurrently:
 
 ```swift
 let runner = AgentTaskRunner()
@@ -299,45 +293,37 @@ let runner = AgentTaskRunner()
 let taskId = runner.submit(
     name: "Risk Analysis",
     executor: riskExecutor,
-    messages: [.system("..."), .user("Analyze project risks")]
+    messages: [.system("…"), .user("Analyze project risks")]
 )
 
-// Check status
-if let task = runner.task(for: taskId) {
-    print(task.status) // .running, .completed, .failed, etc.
-}
-
-// Cancel
+print(runner.task(for: taskId)?.status)  // .running / .completed / .failed
 runner.cancel(taskId)
-
-// Clean up finished tasks
 runner.pruneFinished()
 ```
 
 ## MBAgentKitUI
 
-`MBAgentKitUI` provides a single `AgentRunningView` that renders the full agent execution state — thoughts, tool call timeline, HITL confirmation cards, user input cards, and the final answer.
+`MBAgentKitUI` provides `AgentRunningView` — a single view that renders the full agent execution state: thought stream, tool call timeline, HITL confirmation cards, user input cards, and the final answer.
 
 ### Screenshots
 
 | Screenshot | Description |
 |:---:|---|
-| <img src="Assets/Screenshots/01-thought-running.png" width="300"> | **Thought + Tool Calling** — The agent is reasoning and has dispatched its first tool call. The compact strip shows a spinning indicator for the in-progress tool. |
-| <img src="Assets/Screenshots/02-compact-strip.png" width="300"> | **Compact Strip (Running)** — Multiple tool calls displayed in a horizontal strip. Completed tools show checkmarks; the active tool shows a spinner. |
+| <img src="Assets/Screenshots/01-thought-running.png" width="300"> | **Thought + Tool Calling** — Reasoning in progress; compact strip shows the in-flight tool call. |
+| <img src="Assets/Screenshots/02-compact-strip.png" width="300"> | **Compact Strip (Running)** — Multiple tool calls in a horizontal scrolling strip. Completed tools show checkmarks; active tool shows a spinner. |
 | <img src="Assets/Screenshots/03-list-completed.png" width="300"> | **List Mode (Completed)** — All tool calls finished, displayed as a vertical list with full result details. |
-| <img src="Assets/Screenshots/04-hitl-confirmation.png" width="300"> | **HITL Confirmation** — A sensitive tool (`send_email`) requires user approval before execution. Shows tool name, arguments, and Confirm/Cancel buttons. |
-| <img src="Assets/Screenshots/05-input-text.png" width="300"> | **User Input — Text** — The agent pauses to ask the user a free-text question. |
-| <img src="Assets/Screenshots/06-input-number.png" width="300"> | **User Input — Number** — Numeric input request with a decimal keypad. |
-| <img src="Assets/Screenshots/07-input-choice.png" width="300"> | **User Input — Single Choice** — The agent presents a list of options for the user to pick from. |
-| <img src="Assets/Screenshots/08-input-choice-other.png" width="300"> | **User Input — Choice + Custom** — Single choice with an additional free-text "other" field. |
-| <img src="Assets/Screenshots/09-answer-complete.png" width="300"> | **Final Answer** — The agent has completed its run and presents the final answer with the tool call history above. |
+| <img src="Assets/Screenshots/04-hitl-confirmation.png" width="300"> | **HITL Confirmation** — A sensitive tool requires approval. Shows tool name, arguments, and Confirm / Cancel. |
+| <img src="Assets/Screenshots/05-input-text.png" width="300"> | **User Input — Text** — Agent pauses to collect a free-text answer from the user. |
+| <img src="Assets/Screenshots/06-input-number.png" width="300"> | **User Input — Number** — Numeric input with decimal keypad. |
+| <img src="Assets/Screenshots/07-input-choice.png" width="300"> | **User Input — Single Choice** — Agent presents a list of options. |
+| <img src="Assets/Screenshots/08-input-choice-other.png" width="300"> | **User Input — Choice + Custom** — Choice list with an additional free-text "other" field. |
+| <img src="Assets/Screenshots/09-answer-complete.png" width="300"> | **Final Answer** — Run complete; final answer rendered below the tool call history. |
 
 ### AgentRunningView
 
 ```swift
 import MBAgentKitUI
 
-// Persist the display mode preference (compact strip vs. full list)
 @AppStorage("agentStripDisplayMode") var displayMode: AgentStripDisplayMode = .compact
 
 AgentRunningView(
@@ -349,39 +335,32 @@ AgentRunningView(
     pendingConfirmation: runState.pendingConfirmation,
     pendingUserInput: runState.pendingUserInput,
     displayMode: $displayMode,
-    onConfirm: { executor.resume(approved: true) },
-    onReject:  { executor.resume(approved: false) },
+    onConfirm:     { executor.resume(approved: true) },
+    onReject:      { executor.resume(approved: false) },
     onSubmitInput: { executor.submitUserInput($0) },
     onCancelInput: { executor.cancelUserInput() }
 )
 ```
 
-`AgentStripDisplayMode` controls how tool call progress is displayed:
-
-| Value | Description |
-|-------|-------------|
+| `AgentStripDisplayMode` | Description |
+|-------------------------|-------------|
 | `.compact` | Horizontal scrolling strip — minimal footprint |
 | `.list` | Vertical list of tool call rows — full detail |
 
-The caller owns and persists `displayMode`. Backing it with `@AppStorage` keeps the preference across launches.
-
 ### AgentRunState
 
-`AgentRunState` is an `@Observable` accumulator. Feed it events from the executor's stream and bind it directly to your views:
+`AgentRunState` is an `@Observable` accumulator. Feed it events and bind it directly to your views:
 
 ```swift
 let runState = AgentRunState()
-
 for try await event in executor.run(messages: messages) {
     runState.handleEvent(event)
 }
 ```
 
-Key properties:
-
 | Property | Type | Description |
 |----------|------|-------------|
-| `isRunning` | `Bool` | Whether the executor is still active |
+| `isRunning` | `Bool` | Executor still active |
 | `currentThought` | `String` | Latest thought delta |
 | `currentAnswer` | `String` | Accumulated final answer |
 | `events` | `[AgentEvent]` | Full tool call timeline |
@@ -390,35 +369,20 @@ Key properties:
 | `pendingUserInput` | `PendingUserInput?` | Awaiting user text/choice input |
 | `errorMessage` | `String?` | Non-nil if the run failed |
 
-## Modules
+## AgentEvent Reference
 
-| Module | Dependencies | Purpose |
-|--------|-------------|---------|
-| `MBAgentKit` | None | Core engine, protocols, strategies |
-| `MBAgentKitUI` | MBAgentKit | SwiftUI components (ThoughtBubble, HITLCard, etc.) |
-| `MBAgentKitOpenAI` | MBAgentKit, MacPaw/OpenAI | OpenAI-compatible provider |
-
-## Installation
-
-Add to your `Package.swift`:
-
-```swift
-dependencies: [
-    .package(path: "Packages/MBAgentKit")  // local
-    // or .package(url: "https://github.com/user/MBAgentKit", from: "1.0.0")
-]
-
-targets: [
-    .target(
-        name: "YourApp",
-        dependencies: [
-            "MBAgentKit",
-            "MBAgentKitUI",      // optional
-            "MBAgentKitOpenAI"   // optional
-        ]
-    )
-]
-```
+| Event | Trigger | Typical UI response |
+|-------|---------|---------------------|
+| `iterationStarted(n)` | Each loop start | Increment counter |
+| `thought(text)` | LLM reasoning content | ThoughtBubble |
+| `toolCalling(id,name,args,icon)` | Before execution | Add row to timeline |
+| `awaitingConfirmation(id,name,args)` | HITL gate | Show HITLConfirmationCard |
+| `awaitingUserInput(id, request)` | Tool asks user | Show HITLUserInputCard |
+| `confidenceUpdated(Double)` | Tool reports confidence | Update indicator |
+| `toolResult(id,name,result,icon)` | After execution | Update timeline row |
+| `answer(text)` | LLM final text | AnswerBubble |
+| `completed(finalMessage)` | Run finished | Hide spinner |
+| `error(Error)` | Fatal error | Error banner |
 
 ## Requirements
 
