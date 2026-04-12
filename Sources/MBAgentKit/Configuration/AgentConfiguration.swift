@@ -18,7 +18,9 @@ public struct AgentConfiguration: Sendable {
     public let sessionMaxMessages: Int
 
     /// LLM sampling temperature used during agent execution.
-    public let temperature: Double
+    /// `nil` means the parameter is omitted from the request, letting the
+    /// provider use its own default (required by some models like Kimi K2.5).
+    public let temperature: Double?
 
     /// Optional context compression strategy applied between iterations.
     ///
@@ -33,7 +35,7 @@ public struct AgentConfiguration: Sendable {
     public init(
         maxIterations: Int = 50,
         sessionMaxMessages: Int = 20,
-        temperature: Double = 0.7,
+        temperature: Double? = nil,
         contextStrategy: (any ContextStrategy)? = nil
     ) {
         self.maxIterations = maxIterations

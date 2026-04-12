@@ -18,6 +18,23 @@ extension ChatMessage {
         case .system:
             return .system(.init(content: .textContent(content ?? "")))
         case .user:
+            if let images = imageParts, !images.isEmpty {
+                // Build multi-part content for Vision-capable LLMs
+                var parts: [ChatQuery.ChatCompletionMessageParam.UserMessageParam.Content.ContentPart] = []
+                // Add text part first
+                if let text = content, !text.isEmpty {
+                    parts.append(.text(.init(text: text)))
+                }
+                // Add image parts
+                for img in images {
+                    let imageUrl = ChatQuery.ChatCompletionMessageParam.ContentPartImageParam.ImageURL(
+                        imageData: img.data,
+                        detail: .auto
+                    )
+                    parts.append(.image(.init(imageUrl: imageUrl)))
+                }
+                return .user(.init(content: .contentParts(parts)))
+            }
             return .user(.init(content: .string(content ?? "")))
         case .assistant:
             if let toolCalls, !toolCalls.isEmpty {

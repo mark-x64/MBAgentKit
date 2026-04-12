@@ -55,7 +55,10 @@ public struct OpenAIService: LLMServiceProtocol {
             parsingOptions: .relaxed
         )
 
-        return OpenAI(configuration: configuration)
+        return OpenAI(
+            configuration: configuration,
+            middlewares: [DisableThinkingMiddleware()]
+        )
     }
 
     // MARK: - Chat Completion
