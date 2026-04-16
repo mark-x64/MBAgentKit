@@ -13,10 +13,17 @@ public struct HITLConfirmationCardView: View {
     public let arguments: ToolArguments
     public let confirmLabel: String
     public let cancelLabel: String
+    public let notePlaceholder: String
     public let onConfirm: () -> Void
     public let onReject: () -> Void
     /// Optional: approve this and all future confirmations in the current run.
     public let onApproveAll: (() -> Void)?
+    /// Called when the user submits inline feedback from the bottom composer.
+    /// The caller decides how to interpret the note (e.g. reject with reason,
+    /// inject as user message into the next turn).
+    public let onSendNote: (String) -> Void
+
+    @State private var noteText = ""
 
     public init(
         id: String,
@@ -24,18 +31,22 @@ public struct HITLConfirmationCardView: View {
         arguments: ToolArguments,
         confirmLabel: String = "Confirm",
         cancelLabel: String = "Cancel",
+        notePlaceholder: String = "Add a note or ask the agent to adjust...",
         onConfirm: @escaping () -> Void,
         onReject: @escaping () -> Void,
-        onApproveAll: (() -> Void)? = nil
+        onApproveAll: (() -> Void)? = nil,
+        onSendNote: @escaping (String) -> Void = { _ in }
     ) {
         self.id = id
         self.toolName = toolName
         self.arguments = arguments
         self.confirmLabel = confirmLabel
         self.cancelLabel = cancelLabel
+        self.notePlaceholder = notePlaceholder
         self.onConfirm = onConfirm
         self.onReject = onReject
         self.onApproveAll = onApproveAll
+        self.onSendNote = onSendNote
     }
 
     public var body: some View {
@@ -55,11 +66,13 @@ public struct HITLConfirmationCardView: View {
                     .buttonBorderShape(.circle)
                     .buttonStyle(.bordered)
                     .foregroundStyle(.red)
+                    .accessibilityIdentifier("hitl_reject")
 
                     Button(action: onConfirm) {
                         Text(confirmLabel)
                     }
                     .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("hitl_confirm")
                 }
             }
 
@@ -90,9 +103,39 @@ public struct HITLConfirmationCardView: View {
                 .buttonStyle(.plain)
                 .frame(maxWidth: .infinity, alignment: .trailing)
             }
+
+            Divider()
+
+            noteComposer
         }
         .padding(16)
         .background(.thinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    private var trimmedNote: String {
+        noteText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    @ViewBuilder
+    private var noteComposer: some View {
+        HStack(alignment: .bottom, spacing: 8) {
+            TextField(notePlaceholder, text: $noteText, axis: .vertical)
+                .textFieldStyle(.roundedBorder)
+                .lineLimit(1...4)
+
+            Button {
+                let note = trimmedNote
+                guard !note.isEmpty else { return }
+                onSendNote(note)
+                noteText = ""
+            } label: {
+                Image(systemName: "paperplane.fill")
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.circle)
+            .disabled(trimmedNote.isEmpty)
+        }
     }
 }

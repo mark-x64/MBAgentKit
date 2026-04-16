@@ -43,6 +43,9 @@ public struct AgentRunningView: View {
     public let onApproveAll: (() -> Void)?
     public let onSubmitInput: (String) -> Void
     public let onCancelInput: () -> Void
+    /// Optional: inline feedback submitted from the HITL confirmation note composer.
+    /// When nil, submitting the note falls back to ``onReject``.
+    public let onSendNote: ((String) -> Void)?
 
     public init(
         thought: String,
@@ -57,7 +60,8 @@ public struct AgentRunningView: View {
         onReject: @escaping () -> Void,
         onApproveAll: (() -> Void)? = nil,
         onSubmitInput: @escaping (String) -> Void = { _ in },
-        onCancelInput: @escaping () -> Void = {}
+        onCancelInput: @escaping () -> Void = {},
+        onSendNote: ((String) -> Void)? = nil
     ) {
         self.thought = thought
         self.events = events
@@ -72,6 +76,7 @@ public struct AgentRunningView: View {
         self.onApproveAll = onApproveAll
         self.onSubmitInput = onSubmitInput
         self.onCancelInput = onCancelInput
+        self.onSendNote = onSendNote
     }
 
     @State private var showSteps = true
@@ -122,7 +127,8 @@ public struct AgentRunningView: View {
                     arguments: pending.arguments,
                     onConfirm: onConfirm,
                     onReject: onReject,
-                    onApproveAll: onApproveAll
+                    onApproveAll: onApproveAll,
+                    onSendNote: onSendNote ?? { _ in onReject() }
                 )
                 .transition(.scale(scale: 0.9).combined(with: .opacity))
             } else if let pendingInput = pendingUserInput {

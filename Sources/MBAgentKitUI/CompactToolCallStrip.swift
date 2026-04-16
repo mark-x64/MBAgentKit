@@ -88,7 +88,7 @@ private struct ToolPill: View {
                 // 图标区（固定 14×14，保证折叠时水平内边距=垂直内边距 → Capsule 呈圆形）
                 ZStack {
                     if data.isCompleted {
-                        Image(systemName: isExpanded ? resolvedIcon : "checkmark")
+                        Image(systemName: resolvedIcon)
                             .font(.system(size: 10, weight: .bold))
                             .foregroundStyle(.green)
                     } else {
