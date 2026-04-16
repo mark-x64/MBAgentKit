@@ -111,6 +111,7 @@ public struct HITLConfirmationCardView: View {
         .padding(16)
         .background(.thinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 16))
+        .accessibilityIdentifier("hitl_card")
     }
 
     private var trimmedNote: String {
