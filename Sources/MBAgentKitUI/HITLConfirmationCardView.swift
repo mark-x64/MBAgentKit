@@ -111,7 +111,9 @@ public struct HITLConfirmationCardView: View {
         .padding(16)
         .background(.thinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 16))
-        .accessibilityIdentifier("hitl_card")
+        // Note: 不在外层加 .accessibilityIdentifier("hitl_card") —— SwiftUI 会把 id 广播到
+        // 所有子元素，导致 hitl_confirm / hitl_reject 被覆盖。改用 hitl_confirm 存在性
+        // 作为 UITest 判断 card 是否出现的依据。
     }
 
     private var trimmedNote: String {
