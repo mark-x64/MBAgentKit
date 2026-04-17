@@ -22,6 +22,11 @@ public struct HITLConfirmationCardView: View {
     /// The caller decides how to interpret the note (e.g. reject with reason,
     /// inject as user message into the next turn).
     public let onSendNote: (String) -> Void
+    /// Optional custom preview that replaces the default key-value arguments
+    /// table. When non-nil the parameter table is hidden entirely — the caller
+    /// is expected to render whatever contextual summary the user needs to make
+    /// the decision (e.g. a draft entity preview card).
+    public let previewContent: AnyView?
 
     @State private var noteText = ""
 
@@ -35,7 +40,8 @@ public struct HITLConfirmationCardView: View {
         onConfirm: @escaping () -> Void,
         onReject: @escaping () -> Void,
         onApproveAll: (() -> Void)? = nil,
-        onSendNote: @escaping (String) -> Void = { _ in }
+        onSendNote: @escaping (String) -> Void = { _ in },
+        previewContent: AnyView? = nil
     ) {
         self.id = id
         self.toolName = toolName
@@ -47,6 +53,37 @@ public struct HITLConfirmationCardView: View {
         self.onReject = onReject
         self.onApproveAll = onApproveAll
         self.onSendNote = onSendNote
+        self.previewContent = previewContent
+    }
+
+    /// Trailing-closure convenience initializer so callers can supply a custom
+    /// preview with the familiar `@ViewBuilder` syntax.
+    public init<Preview: View>(
+        id: String,
+        toolName: String,
+        arguments: ToolArguments,
+        confirmLabel: String = "Confirm",
+        cancelLabel: String = "Cancel",
+        notePlaceholder: String = "Add a note or ask the agent to adjust...",
+        onConfirm: @escaping () -> Void,
+        onReject: @escaping () -> Void,
+        onApproveAll: (() -> Void)? = nil,
+        onSendNote: @escaping (String) -> Void = { _ in },
+        @ViewBuilder preview: () -> Preview
+    ) {
+        self.init(
+            id: id,
+            toolName: toolName,
+            arguments: arguments,
+            confirmLabel: confirmLabel,
+            cancelLabel: cancelLabel,
+            notePlaceholder: notePlaceholder,
+            onConfirm: onConfirm,
+            onReject: onReject,
+            onApproveAll: onApproveAll,
+            onSendNote: onSendNote,
+            previewContent: AnyView(preview())
+        )
     }
 
     public var body: some View {
@@ -78,17 +115,21 @@ public struct HITLConfirmationCardView: View {
 
             Divider()
 
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(arguments.parsed.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
-                    HStack(alignment: .top) {
-                        Text(key)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .frame(width: 80, alignment: .leading)
-                        Text(value)
-                            .font(.caption)
-                            .foregroundStyle(.primary)
-                            .lineLimit(2)
+            if let previewContent {
+                previewContent
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(arguments.parsed.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
+                        HStack(alignment: .top) {
+                            Text(key)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .frame(width: 80, alignment: .leading)
+                            Text(value)
+                                .font(.caption)
+                                .foregroundStyle(.primary)
+                                .lineLimit(2)
+                        }
                     }
                 }
             }

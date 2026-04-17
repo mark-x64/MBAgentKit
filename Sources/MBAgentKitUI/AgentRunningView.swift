@@ -46,6 +46,12 @@ public struct AgentRunningView: View {
     /// Optional: inline feedback submitted from the HITL confirmation note composer.
     /// When nil, submitting the note falls back to ``onReject``.
     public let onSendNote: ((String) -> Void)?
+    /// Optional: produces a custom preview for the HITL confirmation card.
+    /// Invoked with the pending tool name and parsed arguments — returning a
+    /// non-nil `AnyView` replaces the default key-value arguments table.
+    /// Return `nil` to fall back to the default rendering for tools the
+    /// caller does not want to customise.
+    public let hitlPreviewBuilder: ((String, ToolArguments) -> AnyView?)?
 
     public init(
         thought: String,
@@ -61,7 +67,8 @@ public struct AgentRunningView: View {
         onApproveAll: (() -> Void)? = nil,
         onSubmitInput: @escaping (String) -> Void = { _ in },
         onCancelInput: @escaping () -> Void = {},
-        onSendNote: ((String) -> Void)? = nil
+        onSendNote: ((String) -> Void)? = nil,
+        hitlPreviewBuilder: ((String, ToolArguments) -> AnyView?)? = nil
     ) {
         self.thought = thought
         self.events = events
@@ -77,6 +84,7 @@ public struct AgentRunningView: View {
         self.onSubmitInput = onSubmitInput
         self.onCancelInput = onCancelInput
         self.onSendNote = onSendNote
+        self.hitlPreviewBuilder = hitlPreviewBuilder
     }
 
     @State private var showSteps = true
@@ -128,7 +136,8 @@ public struct AgentRunningView: View {
                     onConfirm: onConfirm,
                     onReject: onReject,
                     onApproveAll: onApproveAll,
-                    onSendNote: onSendNote ?? { _ in onReject() }
+                    onSendNote: onSendNote ?? { _ in onReject() },
+                    previewContent: hitlPreviewBuilder?(pending.toolName, pending.arguments)
                 )
                 .transition(.scale(scale: 0.9).combined(with: .opacity))
             } else if let pendingInput = pendingUserInput {
