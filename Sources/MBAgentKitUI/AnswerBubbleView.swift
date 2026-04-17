@@ -26,5 +26,7 @@ public struct AnswerBubbleView: View {
         .padding(12)
         .background(.thinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 12))
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("agent_answer_bubble")
     }
 }

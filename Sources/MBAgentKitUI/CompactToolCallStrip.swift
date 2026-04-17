@@ -116,6 +116,9 @@ private struct ToolPill: View {
                         .strokeBorder(.primary.opacity(0.18), lineWidth: 1)
                 }
             }
+            // UITest 定位：id 放在 Button label 内部才能让 Button 暴露 id。
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("tool_pill_\(data.name)")
         }
         .buttonStyle(.plain)
         .animation(.snappy, value: isExpanded)
