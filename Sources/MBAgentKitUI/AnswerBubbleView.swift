@@ -19,8 +19,7 @@ public struct AnswerBubbleView: View {
                 .font(.caption2.weight(.bold))
                 .foregroundStyle(.tint)
 
-            Text(text)
-                .font(.callout)
+            StreamingTextView(text: text, font: .callout)
                 .foregroundStyle(.primary)
         }
         .padding(12)

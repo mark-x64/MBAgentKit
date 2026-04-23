@@ -24,8 +24,7 @@ public struct ThoughtBubbleView: View {
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(.secondary)
 
-                Text(text)
-                    .font(.callout)
+                StreamingTextView(text: text, font: .callout)
                     .foregroundStyle(.primary)
             }
         }
