@@ -164,6 +164,17 @@ public enum AgentEvent: @unchecked Sendable {
     /// The LLM produced reasoning/thought content.
     case thought(String)
 
+    /// Token-level streaming delta from the current LLM call.
+    ///
+    /// Emitted only when ``AgentConfiguration/streaming`` is enabled. Carries an
+    /// incremental slice of the LLM's text or reasoning output as it arrives,
+    /// so the UI can render a live preview before the iteration finalises into
+    /// either a tool-call chain or a final ``answer(_:)``.
+    ///
+    /// Each iteration starts from an empty preview — callers should reset their
+    /// accumulator on ``iterationStarted(_:)``.
+    case outputDelta(String)
+
     /// The LLM is invoking a tool (pre-execution).
     case toolCalling(id: String, name: String, arguments: ToolArguments, iconName: String?)
 

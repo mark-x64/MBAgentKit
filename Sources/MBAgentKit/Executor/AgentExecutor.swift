@@ -108,11 +108,22 @@ public final class AgentExecutor: Equatable, @unchecked Sendable {
                         iteration += 1
                         continuation.yield(.iterationStarted(iteration))
 
-                        let response = try await llm.chatCompletionWithTools(
-                            messages: session.getHistory(),
-                            tools: toolDefinitions,
-                            temperature: configuration.temperature
-                        )
+                        let response: ToolCallResponse
+                        if configuration.streaming {
+                            response = try await Self.streamingResponse(
+                                llm: llm,
+                                messages: session.getHistory(),
+                                tools: toolDefinitions,
+                                temperature: configuration.temperature,
+                                continuation: continuation
+                            )
+                        } else {
+                            response = try await llm.chatCompletionWithTools(
+                                messages: session.getHistory(),
+                                tools: toolDefinitions,
+                                temperature: configuration.temperature
+                            )
+                        }
 
                         switch response {
                         case .text(let content):
@@ -272,6 +283,110 @@ public final class AgentExecutor: Equatable, @unchecked Sendable {
 
     nonisolated public func cancelUserInput() {
         pendingUserInput?.resume(returning: .cancelled)
+    }
+
+    // MARK: - Streaming
+
+    /// Consume the LLM's streaming chunk sequence, forward token-level deltas
+    /// to the executor's event continuation, and collapse the accumulated
+    /// chunks into a non-streaming ``ToolCallResponse`` so the rest of the
+    /// ReAct loop can stay shape-identical to the non-streaming path.
+    ///
+    /// Tool-call deltas are merged by their `index` because OpenAI emits
+    /// `id` / `name` once at the head and then a long tail of `argumentsDelta`
+    /// fragments that must be concatenated in arrival order.
+    nonisolated private static func streamingResponse(
+        llm: any LLMServiceProtocol,
+        messages: [ChatMessage],
+        tools: [Tool],
+        temperature: Double?,
+        continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation
+    ) async throws -> ToolCallResponse {
+        var textBuffer = ""
+        var partialCalls: [Int: PartialToolCall] = [:]
+        var orderedIndices: [Int] = []
+        // Tracks whether *any* delta has been forwarded to the preview so far,
+        // so that subsequent tool-call headers get a leading newline separator
+        // (and the very first delta does not).
+        var hasEmittedAnyDelta = false
+
+        let stream = llm.streamChatCompletionWithTools(
+            messages: messages,
+            tools: tools,
+            temperature: temperature
+        )
+
+        for try await chunk in stream {
+            try Task.checkCancellation()
+            switch chunk {
+            case .textDelta(let delta):
+                guard !delta.isEmpty else { continue }
+                textBuffer += delta
+                continuation.yield(.outputDelta(delta))
+                hasEmittedAnyDelta = true
+            case .reasoningDelta(let delta):
+                guard !delta.isEmpty else { continue }
+                continuation.yield(.outputDelta(delta))
+                hasEmittedAnyDelta = true
+            case .toolCallDelta(let index, let id, let name, let argumentsDelta):
+                if partialCalls[index] == nil {
+                    partialCalls[index] = PartialToolCall()
+                    orderedIndices.append(index)
+                }
+                let priorName = partialCalls[index]?.name
+                partialCalls[index]?.merge(id: id, name: name, argumentsDelta: argumentsDelta)
+                // Surface tool-call construction as text deltas so the
+                // streaming preview keeps moving when the model is producing
+                // JSON instead of prose. The first time we know a function
+                // name we emit a header like "→ batch_modify(", and every
+                // subsequent argument fragment is appended verbatim.
+                if let resolvedName = partialCalls[index]?.name, priorName == nil {
+                    let prefix = hasEmittedAnyDelta
+                        ? "\n→ \(resolvedName)("
+                        : "→ \(resolvedName)("
+                    continuation.yield(.outputDelta(prefix))
+                    hasEmittedAnyDelta = true
+                }
+                if let argumentsDelta, !argumentsDelta.isEmpty {
+                    continuation.yield(.outputDelta(argumentsDelta))
+                    hasEmittedAnyDelta = true
+                }
+            case .finish:
+                // Falls through to post-loop assembly. Some providers omit the
+                // finish chunk entirely, so we don't rely on it as a sentinel.
+                continue
+            }
+        }
+
+        if !partialCalls.isEmpty {
+            let calls: [ToolCall] = orderedIndices.compactMap { idx in
+                partialCalls[idx]?.build()
+            }
+            let assistantMsg = ChatMessage.assistantWithToolCalls(calls)
+            return .toolCalls(calls, assistantMessage: assistantMsg)
+        }
+        return .text(textBuffer)
+    }
+
+    /// Mutable accumulator for one streaming tool-call slot.
+    private struct PartialToolCall {
+        var id: String?
+        var name: String?
+        var arguments: String = ""
+
+        mutating func merge(id newID: String?, name newName: String?, argumentsDelta: String?) {
+            if let newID, self.id == nil { self.id = newID }
+            if let newName, self.name == nil { self.name = newName }
+            if let argumentsDelta { self.arguments += argumentsDelta }
+        }
+
+        func build() -> ToolCall? {
+            guard let name else { return nil }
+            return ToolCall(
+                id: id ?? UUID().uuidString,
+                function: ToolCall.ToolCallFunction(name: name, arguments: arguments)
+            )
+        }
     }
 
     // MARK: - Argument Parsing

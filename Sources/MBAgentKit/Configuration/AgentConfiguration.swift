@@ -29,6 +29,13 @@ public struct AgentConfiguration: Sendable {
     /// the session's built-in sliding window is used as a fallback.
     public let contextStrategy: (any ContextStrategy)?
 
+    /// When `true`, the executor consumes
+    /// ``LLMServiceProtocol/streamChatCompletionWithTools(messages:tools:temperature:)``
+    /// instead of the non-streaming variant, and emits ``AgentEvent/outputDelta(_:)``
+    /// events for token-level previews. The final per-iteration outcome
+    /// (text answer or tool calls) is identical to the non-streaming path.
+    public let streaming: Bool
+
     /// Sensible defaults matching common LLM usage patterns.
     public static let `default` = AgentConfiguration()
 
@@ -36,11 +43,13 @@ public struct AgentConfiguration: Sendable {
         maxIterations: Int = 50,
         sessionMaxMessages: Int = 20,
         temperature: Double? = nil,
-        contextStrategy: (any ContextStrategy)? = nil
+        contextStrategy: (any ContextStrategy)? = nil,
+        streaming: Bool = false
     ) {
         self.maxIterations = maxIterations
         self.sessionMaxMessages = sessionMaxMessages
         self.temperature = temperature
         self.contextStrategy = contextStrategy
+        self.streaming = streaming
     }
 }

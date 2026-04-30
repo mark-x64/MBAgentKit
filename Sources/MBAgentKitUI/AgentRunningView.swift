@@ -36,6 +36,12 @@ public struct AgentRunningView: View {
     public let iterationCount: Int
     public let pendingConfirmation: PendingConfirmation?
     public let pendingUserInput: PendingUserInput?
+    /// Token-level streaming preview for the *current* iteration. Empty when
+    /// streaming is disabled or the iteration has resolved into a tool call /
+    /// final answer. Only the last ``streamingPreviewLineCount`` lines render.
+    public let streamingPreview: String
+    /// How many lines of ``streamingPreview`` to surface (clamped to `1...3`).
+    public let streamingPreviewLineCount: Int
     @Binding public var displayMode: AgentStripDisplayMode
     public let onConfirm: () -> Void
     public let onReject: () -> Void
@@ -61,6 +67,8 @@ public struct AgentRunningView: View {
         iterationCount: Int = 0,
         pendingConfirmation: PendingConfirmation?,
         pendingUserInput: PendingUserInput? = nil,
+        streamingPreview: String = "",
+        streamingPreviewLineCount: Int = 3,
         displayMode: Binding<AgentStripDisplayMode>,
         onConfirm: @escaping () -> Void,
         onReject: @escaping () -> Void,
@@ -77,6 +85,8 @@ public struct AgentRunningView: View {
         self.iterationCount = iterationCount
         self.pendingConfirmation = pendingConfirmation
         self.pendingUserInput = pendingUserInput
+        self.streamingPreview = streamingPreview
+        self.streamingPreviewLineCount = streamingPreviewLineCount
         self._displayMode = displayMode
         self.onConfirm = onConfirm
         self.onReject = onReject
@@ -153,14 +163,24 @@ public struct AgentRunningView: View {
                 AnswerBubbleView(text: answer)
                     .transition(.opacity)
             } else if isRunning && pendingConfirmation == nil && pendingUserInput == nil {
-                HStack {
-                    ProgressView()
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        ProgressView()
+                            .padding(.leading, 8)
+                        Spacer()
+                        if iterationCount > 0 {
+                            Text("Iteration \(iterationCount)")
+                                .font(.caption2)
+                                .foregroundStyle(.quinary)
+                        }
+                    }
+                    if !streamingPreview.isEmpty {
+                        StreamingPreviewView(
+                            text: streamingPreview,
+                            maxLineCount: streamingPreviewLineCount
+                        )
                         .padding(.leading, 8)
-                    Spacer()
-                    if iterationCount > 0 {
-                        Text("Iteration \(iterationCount)")
-                            .font(.caption2)
-                            .foregroundStyle(.quinary)
+                        .transition(.opacity)
                     }
                 }
             }
@@ -171,6 +191,7 @@ public struct AgentRunningView: View {
         .animation(.spring(), value: pendingUserInput != nil)
         .animation(.easeInOut, value: thought)
         .animation(.easeInOut, value: answer)
+        .animation(.easeInOut, value: streamingPreview.isEmpty)
     }
 
     // MARK: - Mode Toggle
@@ -224,6 +245,43 @@ public struct AgentRunningView: View {
     )
     .padding()
     .background(Color(.systemGroupedBackground))
+}
+
+#Preview("Streaming Preview（运行中）", traits: .sizeThatFitsLayout) {
+    @Previewable @State var mode: AgentStripDisplayMode = .compact
+    @Previewable @State var preview: String = ""
+    let events: [AgentEvent] = [
+        .toolResult(id: "1", name: "get_project_detail", result: "Mobile App Launch — 60% done", iconName: "folder"),
+    ]
+    let fullText = "Drafting a recommendation based on the project tree, calendar conflicts, and recent todo completion ratios. Almost ready…"
+
+    AgentRunningView(
+        thought: "",
+        events: events,
+        answer: "",
+        isRunning: true,
+        iterationCount: 2,
+        pendingConfirmation: nil,
+        streamingPreview: preview,
+        streamingPreviewLineCount: 2,
+        displayMode: $mode,
+        onConfirm: {},
+        onReject: {}
+    )
+    .padding()
+    .background(Color(.systemGroupedBackground))
+    .task {
+        while !Task.isCancelled {
+            preview = ""
+            try? await Task.sleep(for: .milliseconds(400))
+            for char in fullText {
+                if Task.isCancelled { return }
+                preview.append(char)
+                try? await Task.sleep(for: .milliseconds(35))
+            }
+            try? await Task.sleep(for: .seconds(2))
+        }
+    }
 }
 
 #Preview("List 模式（已完成）", traits: .sizeThatFitsLayout) {

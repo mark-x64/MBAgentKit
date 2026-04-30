@@ -184,6 +184,64 @@ public struct OpenAIService: LLMServiceProtocol {
         }
     }
 
+    public func streamChatCompletionWithTools(
+        messages: [ChatMessage],
+        tools: [MBAgentKit.Tool],
+        temperature: Double?
+    ) -> AsyncThrowingStream<LLMStreamChunk, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    let client = try makeClient()
+
+                    let query = ChatQuery(
+                        messages: messages.toSDK(),
+                        model: .init(modelName),
+                        temperature: temperature,
+                        tools: tools.toSDK(),
+                        stream: true
+                    )
+
+                    for try await streamResult in client.chatsStream(query: query) {
+                        if Task.isCancelled { break }
+                        guard let choice = streamResult.choices.first else { continue }
+                        let delta = choice.delta
+
+                        if let reasoning = delta.reasoning, !reasoning.isEmpty {
+                            continuation.yield(.reasoningDelta(reasoning))
+                        }
+
+                        if let content = delta.content, !content.isEmpty {
+                            continuation.yield(.textDelta(content))
+                        }
+
+                        if let toolCalls = delta.toolCalls {
+                            for (offset, sliceCall) in toolCalls.enumerated() {
+                                // OpenAI emits `index` on every slice; some
+                                // providers omit it on the first one — fall
+                                // back to array offset to keep merging stable.
+                                let index = sliceCall.index ?? offset
+                                continuation.yield(.toolCallDelta(
+                                    index: index,
+                                    id: sliceCall.id,
+                                    name: sliceCall.function?.name,
+                                    argumentsDelta: sliceCall.function?.arguments
+                                ))
+                            }
+                        }
+
+                        if let reason = choice.finishReason {
+                            continuation.yield(.finish(reason: reason.rawValue))
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: mapSDKError(error))
+                }
+            }
+        }
+    }
+
     // MARK: - Connection Test
 
     /// Send a simple message to verify API key and connectivity.

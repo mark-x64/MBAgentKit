@@ -39,6 +39,10 @@ public final class AgentRunState {
     public var isRunning = false
     public var currentThought = ""
     public var currentAnswer = ""
+    /// Token-level accumulator for the *current* iteration's LLM output.
+    /// Cleared on each ``AgentEvent/iterationStarted(_:)``. Populated only when
+    /// the executor runs in streaming mode (``AgentConfiguration/streaming``).
+    public var streamingPreview = ""
     public var events: [AgentEvent] = []
     public var pendingConfirmation: PendingConfirmation?
     public var pendingUserInput: PendingUserInput?
@@ -52,6 +56,7 @@ public final class AgentRunState {
         isRunning = false
         currentThought = ""
         currentAnswer = ""
+        streamingPreview = ""
         events = []
         pendingConfirmation = nil
         pendingUserInput = nil
@@ -64,11 +69,16 @@ public final class AgentRunState {
         switch event {
         case .iterationStarted(let n):
             iterationCount = n
+            streamingPreview = ""
         case .thought(let delta):
             currentThought += delta
+        case .outputDelta(let delta):
+            streamingPreview += delta
         case .answer(let delta):
             currentAnswer += delta
+            streamingPreview = ""
         case .toolCalling:
+            streamingPreview = ""
             events.append(event)
         case .toolResult(let id, _, _, _):
             if let idx = events.firstIndex(where: {

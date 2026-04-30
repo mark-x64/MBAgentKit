@@ -88,6 +88,21 @@ public protocol LLMServiceProtocol: Sendable {
         messages: [ChatMessage],
         temperature: Double?
     ) -> AsyncThrowingStream<String, Error>
+
+    /// Stream chat completion *with* Function Calling tool definitions.
+    ///
+    /// Yields token-level ``LLMStreamChunk`` values: text deltas, optional
+    /// reasoning deltas (DeepSeek / OpenRouter), tool-call deltas, and a final
+    /// ``LLMStreamChunk/finish(reason:)``.
+    ///
+    /// Default implementation falls back to ``chatCompletionWithTools(messages:tools:temperature:)``
+    /// and synthesises a non-streaming chunk sequence, so providers that don't
+    /// support SSE keep working transparently.
+    func streamChatCompletionWithTools(
+        messages: [ChatMessage],
+        tools: [Tool],
+        temperature: Double?
+    ) -> AsyncThrowingStream<LLMStreamChunk, Error>
 }
 
 // MARK: - Default Implementations
@@ -134,6 +149,48 @@ extension LLMServiceProtocol {
                         responseFormat: nil
                     )
                     continuation.yield(text)
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
+    /// Default: synthesises a chunk sequence from non-streaming
+    /// ``chatCompletionWithTools(messages:tools:temperature:)``.
+    /// Providers that have no SSE support (or test mocks) keep working with
+    /// no extra code — the executor sees one big delta then a finish.
+    public func streamChatCompletionWithTools(
+        messages: [ChatMessage],
+        tools: [Tool],
+        temperature: Double? = nil
+    ) -> AsyncThrowingStream<LLMStreamChunk, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    let response = try await chatCompletionWithTools(
+                        messages: messages,
+                        tools: tools,
+                        temperature: temperature
+                    )
+                    switch response {
+                    case .text(let content):
+                        if !content.isEmpty {
+                            continuation.yield(.textDelta(content))
+                        }
+                        continuation.yield(.finish(reason: "stop"))
+                    case .toolCalls(let calls, _):
+                        for (index, call) in calls.enumerated() {
+                            continuation.yield(.toolCallDelta(
+                                index: index,
+                                id: call.id,
+                                name: call.function.name,
+                                argumentsDelta: call.function.arguments
+                            ))
+                        }
+                        continuation.yield(.finish(reason: "tool_calls"))
+                    }
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
