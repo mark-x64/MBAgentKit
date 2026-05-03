@@ -45,6 +45,38 @@ public final class AgentExecutor: Equatable, @unchecked Sendable {
         set { lock.withLock { _pendingUserInput = newValue } }
     }
 
+    nonisolated private func prepareForRun() {
+        let staleConfirmation: CheckedContinuation<Bool, Never>?
+        let staleUserInput: CheckedContinuation<UserInputResponse, Never>?
+        lock.lock()
+        staleConfirmation = _pendingConfirmation
+        staleUserInput = _pendingUserInput
+        _pendingConfirmation = nil
+        _pendingUserInput = nil
+        _autoApproveAll = false
+        _finalSessionMessages = []
+        lock.unlock()
+
+        staleConfirmation?.resume(returning: false)
+        staleUserInput?.resume(returning: .cancelled)
+    }
+
+    nonisolated private func takePendingConfirmation() -> CheckedContinuation<Bool, Never>? {
+        lock.withLock {
+            let cont = _pendingConfirmation
+            _pendingConfirmation = nil
+            return cont
+        }
+    }
+
+    nonisolated private func takePendingUserInput() -> CheckedContinuation<UserInputResponse, Never>? {
+        lock.withLock {
+            let cont = _pendingUserInput
+            _pendingUserInput = nil
+            return cont
+        }
+    }
+
     /// Whether the executor is currently waiting for user confirmation.
     nonisolated public var isWaitingForConfirmation: Bool { pendingConfirmation != nil }
 
@@ -83,6 +115,8 @@ public final class AgentExecutor: Equatable, @unchecked Sendable {
     /// - Parameter initialMessages: The initial message chain (system + user).
     /// - Returns: An async stream of ``AgentEvent`` values.
     nonisolated public func run(messages initialMessages: [ChatMessage]) -> AsyncThrowingStream<AgentEvent, Error> {
+        prepareForRun()
+
         // Snapshot immutable state before entering the Task to avoid
         // any actor-boundary access to self inside the runner.
         let llm = self.llm
@@ -181,10 +215,13 @@ public final class AgentExecutor: Equatable, @unchecked Sendable {
                                         arguments: toolArgs
                                     ))
 
-                                    let approved = await withCheckedContinuation { (resCont: CheckedContinuation<Bool, Never>) in
-                                        self.pendingConfirmation = resCont
+                                    let approved = await withTaskCancellationHandler {
+                                        await withCheckedContinuation { (resCont: CheckedContinuation<Bool, Never>) in
+                                            self.pendingConfirmation = resCont
+                                        }
+                                    } onCancel: {
+                                        self.takePendingConfirmation()?.resume(returning: false)
                                     }
-                                    self.pendingConfirmation = nil
 
                                     if !approved {
                                         let result = "User rejected this operation."
@@ -205,10 +242,13 @@ public final class AgentExecutor: Equatable, @unchecked Sendable {
                                     let context = AgentToolContext { request in
                                         let requestID = UUID().uuidString
                                         continuation.yield(.awaitingUserInput(id: requestID, request: request))
-                                        let response = await withCheckedContinuation { (resCont: CheckedContinuation<UserInputResponse, Never>) in
-                                            self.pendingUserInput = resCont
+                                        let response = await withTaskCancellationHandler {
+                                            await withCheckedContinuation { (resCont: CheckedContinuation<UserInputResponse, Never>) in
+                                                self.pendingUserInput = resCont
+                                            }
+                                        } onCancel: {
+                                            self.takePendingUserInput()?.resume(returning: .cancelled)
                                         }
-                                        self.pendingUserInput = nil
                                         continuation.yield(.userInputResolved(id: requestID))
                                         return response
                                     } reportConfidence: { confidence in
@@ -255,6 +295,8 @@ public final class AgentExecutor: Equatable, @unchecked Sendable {
 
             continuation.onTermination = { _ in
                 runner.cancel()
+                self.takePendingConfirmation()?.resume(returning: false)
+                self.takePendingUserInput()?.resume(returning: .cancelled)
             }
         }
     }
@@ -263,7 +305,7 @@ public final class AgentExecutor: Equatable, @unchecked Sendable {
     ///
     /// - Parameter approved: Whether the user approved the operation.
     nonisolated public func resume(approved: Bool) {
-        pendingConfirmation?.resume(returning: approved)
+        takePendingConfirmation()?.resume(returning: approved)
     }
 
     /// Approve the current pending confirmation and all future confirmations in this run.
@@ -272,17 +314,19 @@ public final class AgentExecutor: Equatable, @unchecked Sendable {
     nonisolated public func approveAll() {
         let cont = lock.withLock { () -> CheckedContinuation<Bool, Never>? in
             _autoApproveAll = true
-            return _pendingConfirmation
+            let cont = _pendingConfirmation
+            _pendingConfirmation = nil
+            return cont
         }
         cont?.resume(returning: true)
     }
 
     nonisolated public func submitUserInput(_ value: String) {
-        pendingUserInput?.resume(returning: .submitted(value))
+        takePendingUserInput()?.resume(returning: .submitted(value))
     }
 
     nonisolated public func cancelUserInput() {
-        pendingUserInput?.resume(returning: .cancelled)
+        takePendingUserInput()?.resume(returning: .cancelled)
     }
 
     // MARK: - Streaming

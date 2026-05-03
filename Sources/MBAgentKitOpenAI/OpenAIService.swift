@@ -158,7 +158,7 @@ public struct OpenAIService: LLMServiceProtocol {
         temperature: Double?
     ) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 do {
                     let client = try makeClient()
 
@@ -181,6 +181,9 @@ public struct OpenAIService: LLMServiceProtocol {
                     continuation.finish(throwing: mapSDKError(error))
                 }
             }
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
         }
     }
 
@@ -190,7 +193,7 @@ public struct OpenAIService: LLMServiceProtocol {
         temperature: Double?
     ) -> AsyncThrowingStream<LLMStreamChunk, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 do {
                     let client = try makeClient()
 
@@ -238,6 +241,9 @@ public struct OpenAIService: LLMServiceProtocol {
                 } catch {
                     continuation.finish(throwing: mapSDKError(error))
                 }
+            }
+            continuation.onTermination = { _ in
+                task.cancel()
             }
         }
     }
