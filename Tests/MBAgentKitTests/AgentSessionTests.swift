@@ -65,4 +65,51 @@ struct AgentSessionTests {
         #expect(history.count <= 3)
         #expect(history.first?.role == .system)
     }
+
+    @Test("Trimming does not leave orphaned tool result at start")
+    func trimmingDropsLeadingOrphanedToolResult() {
+        let call = ToolCall(
+            id: "c1",
+            function: ToolCall.ToolCallFunction(name: "lookup", arguments: "{}")
+        )
+        var session = AgentSession(systemPrompt: "System", maxMessageCount: 3)
+
+        session.append(contentsOf: [
+            .assistantWithToolCalls([call]),
+            .toolResult(id: "c1", content: "found"),
+            .user("Next")
+        ])
+
+        let history = session.getHistory()
+        #expect(history.first?.role == .system)
+        #expect(history.dropFirst().first?.role != .tool)
+        #expect(history.compactMap(\.toolCallId).isEmpty)
+        #expect(history.last?.content == "Next")
+    }
+
+    @Test("Trimming drops assistant tool call group when results are partial")
+    func trimmingDropsPartialToolCallGroup() {
+        let firstCall = ToolCall(
+            id: "c1",
+            function: ToolCall.ToolCallFunction(name: "lookup", arguments: "{}")
+        )
+        let secondCall = ToolCall(
+            id: "c2",
+            function: ToolCall.ToolCallFunction(name: "lookup", arguments: "{}")
+        )
+        var session = AgentSession(systemPrompt: "System", maxMessageCount: 4)
+
+        session.append(contentsOf: [
+            .user("Old"),
+            .assistantWithToolCalls([firstCall, secondCall]),
+            .toolResult(id: "c1", content: "first result"),
+            .user("Next")
+        ])
+
+        let history = session.getHistory()
+        #expect(history.first?.role == .system)
+        #expect(history.contains(where: { $0.toolCalls != nil }) == false)
+        #expect(history.compactMap(\.toolCallId).isEmpty)
+        #expect(history.last?.content == "Next")
+    }
 }

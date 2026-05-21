@@ -157,12 +157,12 @@ private struct ToolPill: View {
             .buttonStyle(.bordered)
 
             Button("最后一条 → completed") {
-                guard case .toolCalling(let id, let name, _, let icon) = events.last else { return }
+                guard case .toolCalling(id: let id, name: let name, arguments: _, iconName: let icon) = events.last else { return }
                 events[events.count - 1] = .toolResult(id: id, name: name, result: "每月固定支出 ¥5,459", iconName: icon)
             }
             .buttonStyle(.bordered)
         }
     }
     .padding()
-    .background(Color(.systemGroupedBackground))
+    .background(Color.mbaSystemGroupedBackground)
 }

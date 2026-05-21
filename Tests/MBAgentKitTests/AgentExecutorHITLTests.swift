@@ -246,4 +246,95 @@ struct AgentExecutorHITLTests {
         #expect(wasWaiting)
         #expect(!executor.isWaitingForConfirmation)
     }
+
+    // MARK: - User input
+
+    @Test("Tool user input emits request, resolves, and feeds submitted value into result")
+    func userInputSubmission() async throws {
+        let call = ToolCall(id: "c1", function: .init(name: "ask_name", arguments: "{}"))
+
+        let mock = MockLLMService()
+        mock.responses = [
+            .toolCalls([call], assistantMessage: .assistantWithToolCalls([call])),
+            .text("Done.")
+        ]
+
+        let tool = BlockTool(
+            name: "ask_name",
+            description: "Ask for a name",
+            parameters: makeEmptyParams()
+        ) { _, context in
+            let name = await context.askForText(
+                title: "Name",
+                prompt: "What should I call this project?",
+                placeholder: "Project name"
+            )
+            return "name:\(name ?? "missing")"
+        }
+
+        let executor = AgentExecutor(llm: mock, tools: [tool])
+        let stream = executor.run(messages: [.user("Name it")])
+
+        var requestID: String?
+        var requestTitle = ""
+        var resolvedID: String?
+        var toolResult = ""
+
+        for try await event in stream {
+            switch event {
+            case .awaitingUserInput(let id, let request):
+                requestID = id
+                requestTitle = request.title
+                executor.submitUserInput("Thesis")
+            case .userInputResolved(let id):
+                resolvedID = id
+            case .toolResult(_, _, let result, _):
+                toolResult = result
+            default:
+                break
+            }
+        }
+
+        #expect(requestID != nil)
+        #expect(resolvedID == requestID)
+        #expect(requestTitle == "Name")
+        #expect(toolResult == "name:Thesis")
+    }
+
+    @Test("Tool user input cancellation returns nil to tool")
+    func userInputCancellation() async throws {
+        let call = ToolCall(id: "c1", function: .init(name: "ask_name", arguments: "{}"))
+
+        let mock = MockLLMService()
+        mock.responses = [
+            .toolCalls([call], assistantMessage: .assistantWithToolCalls([call])),
+            .text("Done.")
+        ]
+
+        let tool = BlockTool(
+            name: "ask_name",
+            description: "Ask for a name",
+            parameters: makeEmptyParams()
+        ) { _, context in
+            let name = await context.askForText(title: "Name", prompt: "Name?")
+            return name ?? "cancelled"
+        }
+
+        let executor = AgentExecutor(llm: mock, tools: [tool])
+        let stream = executor.run(messages: [.user("Name it")])
+
+        var toolResult = ""
+        for try await event in stream {
+            switch event {
+            case .awaitingUserInput:
+                executor.cancelUserInput()
+            case .toolResult(_, _, let result, _):
+                toolResult = result
+            default:
+                break
+            }
+        }
+
+        #expect(toolResult == "cancelled")
+    }
 }

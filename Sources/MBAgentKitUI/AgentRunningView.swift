@@ -244,7 +244,7 @@ public struct AgentRunningView: View {
         onReject: {}
     )
     .padding()
-    .background(Color(.systemGroupedBackground))
+    .background(Color.mbaSystemGroupedBackground)
 }
 
 #Preview("Streaming Preview（运行中）", traits: .sizeThatFitsLayout) {
@@ -269,7 +269,7 @@ public struct AgentRunningView: View {
         onReject: {}
     )
     .padding()
-    .background(Color(.systemGroupedBackground))
+    .background(Color.mbaSystemGroupedBackground)
     .task {
         while !Task.isCancelled {
             preview = ""
@@ -305,5 +305,5 @@ public struct AgentRunningView: View {
         onReject: {}
     )
     .padding()
-    .background(Color(.systemGroupedBackground))
+    .background(Color.mbaSystemGroupedBackground)
 }

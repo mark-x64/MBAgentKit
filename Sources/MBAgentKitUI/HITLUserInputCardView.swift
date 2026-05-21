@@ -6,6 +6,16 @@
 import SwiftUI
 import MBAgentKit
 
+#if canImport(UIKit)
+import UIKit
+private typealias PlatformKeyboardType = UIKeyboardType
+#else
+private enum PlatformKeyboardType {
+    case `default`
+    case decimalPad
+}
+#endif
+
 public struct HITLUserInputCardView: View {
     public let request: PendingUserInput
     public let submitLabel: String
@@ -99,11 +109,13 @@ public struct HITLUserInputCardView: View {
     }
 
     @ViewBuilder
-    private func textInputSection(placeholder: String, keyboardType: UIKeyboardType) -> some View {
+    private func textInputSection(placeholder: String, keyboardType: PlatformKeyboardType) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             TextField(placeholder, text: $textValue, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
+#if canImport(UIKit)
                 .keyboardType(keyboardType)
+#endif
                 .focused($textFieldFocused)
 
             Button(submitLabel) {
@@ -349,7 +361,7 @@ public struct HITLUserInputCardView: View {
         onCancel: {}
     )
     .padding()
-    .background(Color(.systemGroupedBackground))
+    .background(Color.mbaSystemGroupedBackground)
 }
 
 #Preview("Slider — 连续", traits: .sizeThatFitsLayout) {
@@ -373,5 +385,5 @@ public struct HITLUserInputCardView: View {
         onCancel: {}
     )
     .padding()
-    .background(Color(.systemGroupedBackground))
+    .background(Color.mbaSystemGroupedBackground)
 }
