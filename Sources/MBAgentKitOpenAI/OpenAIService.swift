@@ -129,8 +129,7 @@ public struct OpenAIService: LLMServiceProtocol {
             throw LLMError.emptyResponse
         }
 
-        if choice.finishReason == "tool_calls",
-           let sdkToolCalls = choice.message.toolCalls, !sdkToolCalls.isEmpty {
+        if let sdkToolCalls = choice.message.toolCalls, !sdkToolCalls.isEmpty {
             let toolCalls = sdkToolCalls.map { sdkCall in
                 ToolCall(
                     id: sdkCall.id,

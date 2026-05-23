@@ -25,6 +25,7 @@ import Foundation
 /// // Cancel if needed
 /// runner.cancel(taskId)
 /// ```
+@MainActor
 @Observable
 public final class AgentTaskRunner: @unchecked Sendable {
 
@@ -72,7 +73,7 @@ public final class AgentTaskRunner: @unchecked Sendable {
         tasks.append(agentTask)
         lock.unlock()
 
-        let handle = Task { [weak self] in
+        let handle = Task { @MainActor [weak self] in
             self?.updateStatus(taskId, .running)
 
             let stream = executor.run(messages: messages)

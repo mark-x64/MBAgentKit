@@ -180,7 +180,6 @@ public final class AgentExecutor: Equatable, @unchecked Sendable {
                                 try Task.checkCancellation()
 
                                 let rawArgs = call.function.arguments
-                                let parsedArgs = Self.parseArguments(rawArgs)
                                 let toolArgs = ToolArguments(jsonString: rawArgs)
 
                                 // Look up tool first so iconName is available for the calling event.
@@ -202,6 +201,21 @@ public final class AgentExecutor: Equatable, @unchecked Sendable {
                                         name: call.function.name,
                                         result: result,
                                         iconName: nil
+                                    ))
+                                    session.append(.toolResult(id: call.id, content: result))
+                                    continue
+                                }
+
+                                let parsedArgs: [String: ToolValue]
+                                do {
+                                    parsedArgs = try Self.parseArguments(rawArgs)
+                                } catch {
+                                    let result = "Tool arguments JSON is invalid: \(error.localizedDescription)"
+                                    continuation.yield(.toolResult(
+                                        id: call.id,
+                                        name: call.function.name,
+                                        result: result,
+                                        iconName: tool.iconName
                                     ))
                                     session.append(.toolResult(id: call.id, content: result))
                                     continue
@@ -435,11 +449,28 @@ public final class AgentExecutor: Equatable, @unchecked Sendable {
 
     // MARK: - Argument Parsing
 
-    nonisolated private static func parseArguments(_ arguments: String) -> [String: ToolValue] {
-        guard let data = arguments.data(using: .utf8),
-              let json = try? JSONDecoder().decode([String: ToolValue].self, from: data) else {
+    nonisolated private static func parseArguments(_ arguments: String) throws -> [String: ToolValue] {
+        let trimmed = arguments.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
             return [:]
         }
-        return json
+
+        guard let data = trimmed.data(using: .utf8) else {
+            throw ToolArgumentParsingError.invalidJSON
+        }
+
+        do {
+            return try JSONDecoder().decode([String: ToolValue].self, from: data)
+        } catch {
+            throw ToolArgumentParsingError.invalidJSON
+        }
+    }
+
+    private enum ToolArgumentParsingError: LocalizedError {
+        case invalidJSON
+
+        var errorDescription: String? {
+            "Expected a JSON object, for example {} or {\"key\":\"value\"}."
+        }
     }
 }
