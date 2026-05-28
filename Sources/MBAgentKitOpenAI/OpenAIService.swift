@@ -20,6 +20,14 @@ public struct OpenAIService: LLMServiceProtocol {
     private let baseURL: String
     private let modelName: String
 
+    private var usesMoonshotKimiK25: Bool {
+        let normalizedModel = modelName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard normalizedModel == "kimi-k2.5" else { return false }
+
+        guard let host = URL(string: baseURL)?.host?.lowercased() else { return false }
+        return host.contains("moonshot") || host.contains("kimi")
+    }
+
     public init(apiKey: String, baseURL: String, modelName: String) {
         self.apiKey = apiKey
         self.baseURL = baseURL
@@ -84,7 +92,7 @@ public struct OpenAIService: LLMServiceProtocol {
             messages: messages.toSDK(),
             model: .init(modelName),
             responseFormat: sdkResponseFormat,
-            temperature: temperature
+            temperature: compatibleTemperature(temperature)
         )
 
         let result: ChatResult
@@ -114,7 +122,7 @@ public struct OpenAIService: LLMServiceProtocol {
         let query = ChatQuery(
             messages: messages.toSDK(),
             model: .init(modelName),
-            temperature: temperature,
+            temperature: compatibleTemperature(temperature),
             tools: tools.toSDK()
         )
 
@@ -164,7 +172,7 @@ public struct OpenAIService: LLMServiceProtocol {
                     let query = ChatQuery(
                         messages: messages.toSDK(),
                         model: .init(modelName),
-                        temperature: temperature,
+                        temperature: compatibleTemperature(temperature),
                         stream: true
                     )
 
@@ -199,7 +207,7 @@ public struct OpenAIService: LLMServiceProtocol {
                     let query = ChatQuery(
                         messages: messages.toSDK(),
                         model: .init(modelName),
-                        temperature: temperature,
+                        temperature: compatibleTemperature(temperature),
                         tools: tools.toSDK(),
                         stream: true
                     )
@@ -253,6 +261,15 @@ public struct OpenAIService: LLMServiceProtocol {
     public func testConnection() async throws -> String {
         let testMessage = ChatMessage(role: .user, content: "Hi, reply with 'OK' only.")
         return try await chatCompletion(messages: [testMessage], temperature: nil, responseFormat: nil)
+    }
+
+    // MARK: - Provider Compatibility
+
+    private func compatibleTemperature(_ requestedTemperature: Double?) -> Double? {
+        if usesMoonshotKimiK25 {
+            return nil
+        }
+        return requestedTemperature
     }
 
     // MARK: - Error Mapping
